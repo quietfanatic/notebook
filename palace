@@ -4,9 +4,10 @@ use warnings;
 use v5.18;
 use bytes;  # Assume everything is UTF-8
 use JSON::MaybeXS ':all';
+package palace;
 
  # Ad-hoc, doesn't conform to any standardized schema schema.
-my $schema = {
+my $top_schema = {
     name => 'string',
     url => 'url',
     added => 'date',
@@ -21,18 +22,17 @@ my $schema = {
  # Returns list of strings.
 sub criticize {
     my ($obj, $schema, $path) = @_;
-    $path //= 'TOP';
+    $schema = $top_schema if @_ < 2;
+    $path = 'TOP' if @_ < 3;
     if (!defined $schema) {
         return ();  # Anything goes
     }
     elsif (ref $schema eq 'HASH') {
         ref $obj eq 'HASH' or return "Value at $path is not an object";
         my @errs;
-        if (exists $schema->{'!REQUIRED'}) {
-            for (@{$schema->{'REQUIRED'}}) {
-                if (!exists $obj->{$_}) {
-                    push @errs, "Missing required key $_ at $path";
-                }
+        for (@{$schema->{'!REQUIRED'}}) {
+            if (!exists $obj->{$_}) {
+                push @errs, "Missing required property $_ at $path";
             }
         }
         for (keys %$obj) {
@@ -46,7 +46,7 @@ sub criticize {
                 push @errs, criticize($obj->{$_}, $schema->{'!ANY'}, "$path.$_");
             }
             else {
-                push @errs, "Unrecognized key $_ at $path";
+                push @errs, "Unallowed property $_ at $path";
             }
         }
         return @errs;
@@ -56,7 +56,7 @@ sub criticize {
         @$schema == 1 or return "Schema itself is broken at $path";
         my @errs;
         for (0..$#$obj) {
-            push @errs, criticize($obj->[$_], $schema->[1], "$path\[$_]";
+            push @errs, criticize($obj->[$_], $schema->[0], "$path\[$_]");
         }
         return @errs;
     }
