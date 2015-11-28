@@ -1,0 +1,87 @@
+#!/usr/bin/perl
+use strict;
+use warnings;
+use v5.18;
+use bytes;  # Assume everything is UTF-8
+use JSON::MaybeXS ':all';
+
+ # Ad-hoc, doesn't conform to any standardized schema schema.
+my $schema = {
+    name => 'string',
+    url => 'url',
+    added => 'date',
+    updated => 'date',
+    tags => ['string'],
+    tagged => ['string'],
+    comments => ['string'],
+    misc => { '!ANY' => undef },
+    '!REQUIRED' => ['name'],
+};
+
+ # Returns list of strings.
+sub criticize {
+    my ($obj, $schema, $path) = @_;
+    $path //= 'TOP';
+    if (!defined $schema) {
+        return ();  # Anything goes
+    }
+    elsif (ref $schema eq 'HASH') {
+        ref $obj eq 'HASH' or return "Value at $path is not an object";
+        my @errs;
+        if (exists $schema->{'!REQUIRED'}) {
+            for (@{$schema->{'REQUIRED'}}) {
+                if (!exists $obj->{$_}) {
+                    push @errs, "Missing required key $_ at $path";
+                }
+            }
+        }
+        for (keys %$obj) {
+            if ($_ =~ /^!/) {
+                push @errs, "Key $_ at $path should not begin with a !";
+            }
+            elsif (exists $schema->{$_}) {
+                push @errs, criticize($obj->{$_}, $schema->{$_}, "$path.$_");
+            }
+            elsif (exists $schema->{'!ANY'}) {
+                push @errs, criticize($obj->{$_}, $schema->{'!ANY'}, "$path.$_");
+            }
+            else {
+                push @errs, "Unrecognized key $_ at $path";
+            }
+        }
+        return @errs;
+    }
+    elsif (ref $schema eq 'ARRAY') {
+        ref $obj eq 'ARRAY' or return "Value at $path is not an array";
+        @$schema == 1 or return "Schema itself is broken at $path";
+        my @errs;
+        for (0..$#$obj) {
+            push @errs, criticize($obj->[$_], $schema->[1], "$path\[$_]";
+        }
+        return @errs;
+    }
+    elsif ($schema eq 'date') {
+        ref $obj eq '' or return "Value at $path is not a string, let alone a date";
+         # TODO: criticize date
+        return ();
+    }
+    elsif ($schema eq 'url') {
+        ref $obj eq '' or return "Value at $path is not a string, let along a url";
+         # TODO: criticize URL
+        return ();
+    }
+    elsif ($schema eq 'string') {
+        ref $obj eq '' or return "Value at $path is not a string";
+         # Not caring about numbers
+        return ();
+    }
+    else {
+        return "Schema itself is broken at $path";
+    }
+}
+
+sub add {
+    my ($obj) = @_;
+}
+
+1;
