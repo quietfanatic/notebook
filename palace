@@ -6,14 +6,17 @@ use bytes;  # Assume everything is UTF-8
 use JSON::MaybeXS ':all';
 package palace;
 
+ # Overridden for testing
+our $data_directory = 'data';
+
  # Ad-hoc, doesn't conform to any standardized schema schema.
-my $top_schema = {
-    name => 'string',
-    url => 'url',
-    added => 'date',
-    updated => 'date',
-    tags => ['string'],
-    tagged => ['string'],
+our $top_schema = {
+    name => 'name',
+    uri => 'uri',
+    added => 'datetime',
+    updated => 'datetime',
+    tags => ['name'],
+    tagged => ['name'],
     comments => ['string'],
     misc => { '!ANY' => undef },
     '!REQUIRED' => ['name'],
@@ -60,14 +63,27 @@ sub criticize {
         }
         return @errs;
     }
-    elsif ($schema eq 'date') {
+    elsif ($schema eq 'name') {
+        ref $obj eq '' or return "Value at $path is not a string, let alone a name";
+        my @errs;
+        if (length $name > 200) {
+            push @errs, "Value at $path is too long to be a name";
+        }
+        if ($name =~ /[\x00-\x1f\x7f]/) {
+            push @errs, "Value at $path contains unprintable characters not allowed in a name";
+        }
+        return @errs;
+    }
+    elsif ($schema eq 'datetime') {
         ref $obj eq '' or return "Value at $path is not a string, let alone a date";
-         # TODO: criticize date
+         # Only taking UTC dates
+        $obj =~ /^\d\d\d\d-\d\d-\d\dT\d\d:\d\d:\d\dZ$/
+            or return "Value at $path does not look like a date";
         return ();
     }
-    elsif ($schema eq 'url') {
-        ref $obj eq '' or return "Value at $path is not a string, let along a url";
-         # TODO: criticize URL
+    elsif ($schema eq 'uri') {
+        ref $obj eq '' or return "Value at $path is not a string, let along a uri";
+        $obj =~ /^\a+:\/\// or return "Value at $path does not look like a uri";
         return ();
     }
     elsif ($schema eq 'string') {
@@ -80,8 +96,35 @@ sub criticize {
     }
 }
 
+sub iso_datetime { ($_[5]+1900)."-".($_[4]+01)."-$_[3]T$_[2]:$_[1]:$_[0]Z" }
+
+sub encode_name {
+    my ($name) = @_;
+    $name =~ s/([\/\\?%*:|"'<>.])/sprintf '%%%02X', ord($1)/e;
+    return $name;
+}
+sub decode_name {
+    my ($name) = @_;
+    $name =~ s/%([a-zA-Z0-9]{2})/chr hex $1/e;
+    return $name;
+}
+
+sub write_data {
+    my ($obj) = @_;
+    my $filename = encode_name $obj->{name};
+    my $text = encode_json $obj;
+}
+
 sub add {
     my ($obj) = @_;
+    my @errs = criticize($obj);
+    if (@errs) {
+        return @errs;
+    }
+    $obj->{created} //= iso_datetime(gmtime);
+    $obj->{updated} = iso_datetime(gmtime);
+     # TODO: link tags
+    my $text = encode_json($obj);
 }
 
 1;
