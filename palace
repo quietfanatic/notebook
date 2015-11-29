@@ -66,10 +66,10 @@ sub criticize {
     elsif ($schema eq 'name') {
         ref $obj eq '' or return "Value at $path is not a string, let alone a name";
         my @errs;
-        if (length $name > 200) {
+        if (length $obj > 200) {
             push @errs, "Value at $path is too long to be a name";
         }
-        if ($name =~ /[\x00-\x1f\x7f]/) {
+        if ($obj =~ /[\x00-\x1f\x7f]/) {
             push @errs, "Value at $path contains unprintable characters not allowed in a name";
         }
         return @errs;
@@ -83,7 +83,7 @@ sub criticize {
     }
     elsif ($schema eq 'uri') {
         ref $obj eq '' or return "Value at $path is not a string, let along a uri";
-        $obj =~ /^\a+:\/\// or return "Value at $path does not look like a uri";
+        $obj =~ /^[a-z]+:\/\// or return "Value at $path does not look like a uri";
         return ();
     }
     elsif ($schema eq 'string') {
@@ -100,12 +100,12 @@ sub iso_datetime { ($_[5]+1900)."-".($_[4]+01)."-$_[3]T$_[2]:$_[1]:$_[0]Z" }
 
 sub encode_name {
     my ($name) = @_;
-    $name =~ s/([\/\\?%*:|"'<>.])/sprintf '%%%02X', ord($1)/e;
+    $name =~ s/([\/\\?%*:|"'<>.])/sprintf '%%%02X', ord($1)/eg;
     return $name;
 }
 sub decode_name {
     my ($name) = @_;
-    $name =~ s/%([a-zA-Z0-9]{2})/chr hex $1/e;
+    $name =~ s/%([a-zA-Z0-9]{2})/chr hex $1/eg;
     return $name;
 }
 
