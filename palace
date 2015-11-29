@@ -175,6 +175,29 @@ sub have_item {
     return -e $filename;
 }
 
+sub all_names {
+    @_ == 0 or croak arity_miss 0+@_, 0;
+    my $dir = "$datadir/things";
+    opendir my $D, $dir or croak "Could not open $dir: $!\n";
+    my @filenames = readdir $D;
+    closedir $D or croak "Could not close $dir: $!\n";
+    return map &decode_name, @filenames;
+}
+sub all_items {
+    @_ == 0 or croak arity_miss 0+@_, 0;
+    my %items;
+    for (all_names) {
+        $items{$_} = read_item($_);
+    }
+    return \%items;
+}
+
+sub validate_everything {
+    @_ == 0 or croak arity_miss 0+@_, 0;
+     # TODO
+}
+
+
 ##### Stringy/commandy API
 sub add_raw {
     my ($text) = @_;
@@ -185,14 +208,12 @@ sub add_raw {
     criticize_or_die $item, "Input to 'add' didn't pass validation.";
     $item->{created} //= iso_datetime(gmtime);
     $item->{updated} = iso_datetime(gmtime);
-     # TODO: link tags
     write_data $item, $filename;
 }
 sub show_raw {
     my ($name) = @_;
     @_ == 1 or croak arity_miss 0+@_, 1;
     my $item = read_item $name;
-     # TODO: prettyprint
     return encode_json $item;
 }
 
