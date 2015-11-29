@@ -19,6 +19,26 @@ sub arity_miss {
         : "Too few parameters passed to $name ($got < $wanted)";
 }
 
+##### Stringy utilities
+
+sub iso_datetime { ($_[5]+1900)."-".($_[4]+01)."-$_[3]T$_[2]:$_[1]:$_[0]Z" }
+
+sub encode_name {
+    my ($name) = @_;
+    $name =~ s/([\/\\?%*:|"'<>.])/sprintf '%%%02X', ord($1)/eg;
+    return $name;
+}
+sub decode_name {
+    my ($name) = @_;
+    $name =~ s/%([a-zA-Z0-9]{2})/chr hex $1/eg;
+    return $name;
+}
+sub name_file {
+    my $ename = encode_name $_[0];
+    return "$datadir/things/$ename.json";
+}
+
+
 ##### Validation
 
  # Ad-hoc, doesn't conform to any standardized schema schema.
@@ -80,8 +100,17 @@ sub criticize {
     elsif ($schema eq 'name') {
         ref $obj eq '' or return "Value at $path is not a string, let alone a name";
         my @errs;
+        if ($obj eq '') {
+            push @errs, "Value at $path is too empty to be a name";
+        }
         if (length $obj > 200) {
-            push @errs, "Value at $path is too long to be a name";
+            push @errs, "Value at $path is too long in bytes to be a name (".length($obj)." > 200)";
+        }
+        if ($obj =~ /^\s/) {
+            push @errs, "Value at $path has leading whitespace, and so cannot be a name";
+        }
+        if ($obj =~ /\s$/) {
+            push @errs, "Value at $path has trailing whitespace, and so cannot be a name";
         }
         if ($obj =~ /[\x00-\x1f\x7f]/) {
             push @errs, "Value at $path contains unprintable characters not allowed in a name";
@@ -112,31 +141,11 @@ sub criticize {
 sub criticize_or_die {
     my ($obj, $mess) = @_;
     @_ == 2 or croak arity_miss 0+@_, 2;
-    my @errs = criticize $obj;
+    my @errs = ref $obj eq 'ARRAY' ? criticize(@$obj) : criticize($obj);
     if (@errs) {
         die join("\n    ", $mess, @errs) . "\n";
     }
 }
-
-##### Stringy utilities
-
-sub iso_datetime { ($_[5]+1900)."-".($_[4]+01)."-$_[3]T$_[2]:$_[1]:$_[0]Z" }
-
-sub encode_name {
-    my ($name) = @_;
-    $name =~ s/([\/\\?%*:|"'<>.])/sprintf '%%%02X', ord($1)/eg;
-    return $name;
-}
-sub decode_name {
-    my ($name) = @_;
-    $name =~ s/%([a-zA-Z0-9]{2})/chr hex $1/eg;
-    return $name;
-}
-sub name_file {
-    my $ename = encode_name $_[0];
-    return "$datadir/things/$ename.json";
-}
-
 
 ##### Backend
 
@@ -145,6 +154,7 @@ sub read_item {
     @_ < 1 and croak arity_miss 0+@_, 1;
     @_ < 2 and $filename = name_file $name;
     @_ > 2 and croak arity_miss 0+@_, 2;
+    criticize_or_die [$name, 'name', '(name given to read_item)'], 'Name given to read_item is invalid.';
     -e $filename or croak "$name is not a registered item";
     open my $F, '<', $filename or croak "Could not open $filename for reading: $!";
     local $/;
@@ -179,9 +189,11 @@ sub all_names {
     @_ == 0 or croak arity_miss 0+@_, 0;
     my $dir = "$datadir/things";
     opendir my $D, $dir or croak "Could not open $dir: $!\n";
-    my @filenames = readdir $D;
+    my @filenames = map {
+        /^(.*)\.json$/ ? $1 : ();
+    } readdir $D;
     closedir $D or croak "Could not close $dir: $!\n";
-    return map &decode_name, @filenames;
+    return map decode_name($_), @filenames;
 }
 sub all_items {
     @_ == 0 or croak arity_miss 0+@_, 0;

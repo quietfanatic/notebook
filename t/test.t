@@ -6,7 +6,7 @@ require 'palace';
 
 sub lives {
     eval { $_[0]() };
-    is $@, '';
+    is $@, '', $_[1];
 }
 sub dies {
     eval { $_[0]() };
@@ -15,7 +15,6 @@ sub dies {
     }
     else {
         fail $_[1];
-        note 
     }
 }
 
@@ -49,10 +48,15 @@ is palace::name_file('a thing/whatever'), 't/test-data/things/a thing%2Fwhatever
 
 note 'Backend';
 unlink palace::name_file('foo');
+unlink palace::name_file('bar');
 my $in = {name => 'foo'};
 lives sub { palace::write_item($in) }, 'can use write_item';
 my $out;
 lives sub { $out = palace::read_item('foo') }, 'can use read_item';
 is_deeply $out, $in, 'write_item and read_item roundtrip';
+lives sub { palace::write_item({name => 'bar', misc => {}}) }, 'write_item again';
+is_deeply [sort { $a cmp $b } palace::all_names()], ['bar', 'foo'], 'all_names works';
+lives sub { $out = palace::all_items() }, 'all_items lives';
+is_deeply $out, {foo => {name => 'foo'}, bar => {name => 'bar', misc => {}}}, 'all_items works';
 
 done_testing;
