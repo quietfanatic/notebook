@@ -1,13 +1,25 @@
 #!/usr/bin/perl
+package palace;
 use strict;
 use warnings;
 use v5.18;
 use bytes;  # Assume everything is UTF-8
 use JSON::MaybeXS ':all';
-package palace;
+use Carp 'croak';
 
  # Overridden for testing
-our $data_directory = 'data';
+our $datadir = 'data';
+
+##### Misc utilities
+sub arity_miss {
+    my ($got, $wanted) = @_;
+    my (undef, undef, undef, $name) = caller 1;
+    return $got > $wanted
+        ? "Too many parameters passed to $name ($got > $wanted)"
+        : "Too few parameters passed to $name ($got < $wanted)";
+}
+
+##### Validation
 
  # Ad-hoc, doesn't conform to any standardized schema schema.
 our $top_schema = {
@@ -25,8 +37,10 @@ our $top_schema = {
  # Returns list of strings.
 sub criticize {
     my ($obj, $schema, $path) = @_;
-    $schema = $top_schema if @_ < 2;
-    $path = 'TOP' if @_ < 3;
+    @_ < 1 and croak arity_miss 0+@_, 1;
+    @_ < 2 and $schema = $top_schema;
+    @_ < 3 and $path = 'TOP' if @_ < 3;
+    @_ > 3 and croak arity_miss 0+@_, 3;
     if (!defined $schema) {
         return ();  # Anything goes
     }
@@ -95,6 +109,16 @@ sub criticize {
         return "Schema itself is broken at $path";
     }
 }
+sub criticize_or_die {
+    my ($obj, $mess) = @_;
+    @_ == 2 or croak arity_miss 0+@_, 2;
+    my @errs = criticize $obj;
+    if (@errs) {
+        die join("\n    ", $mess, @errs) . "\n";
+    }
+}
+
+##### Stringy utilities
 
 sub iso_datetime { ($_[5]+1900)."-".($_[4]+01)."-$_[3]T$_[2]:$_[1]:$_[0]Z" }
 
@@ -108,23 +132,68 @@ sub decode_name {
     $name =~ s/%([a-zA-Z0-9]{2})/chr hex $1/eg;
     return $name;
 }
-
-sub write_data {
-    my ($obj) = @_;
-    my $filename = encode_name $obj->{name};
-    my $text = encode_json $obj;
+sub name_file {
+    my $ename = encode_name $_[0];
+    return "$datadir/things/$ename.json";
 }
 
-sub add {
-    my ($obj) = @_;
-    my @errs = criticize($obj);
-    if (@errs) {
-        return @errs;
-    }
-    $obj->{created} //= iso_datetime(gmtime);
-    $obj->{updated} = iso_datetime(gmtime);
+
+##### Backend
+
+sub read_item {
+    my ($name, $filename) = @_;
+    @_ < 1 and croak arity_miss 0+@_, 1;
+    @_ < 2 and $filename = name_file $name;
+    @_ > 2 and croak arity_miss 0+@_, 2;
+    -e $filename or croak "$name is not a registered item";
+    open my $F, '<', $filename or croak "Could not open $filename for reading: $!";
+    local $/;
+    my $json = <$F> // croak "Could not read from $filename: $!";
+    close $F or croak "Could not close $filename: $!";
+    my $item = decode_json $json;
+    criticize_or_die $item, "$filename contained invalid data!";
+    return $item;
+}
+
+sub write_item {
+    my ($item, $filename) = @_;
+    @_ < 1 and croak arity_miss 0+@_, 1;
+    @_ < 2 and $filename = name_file $item->{name};
+    @_ > 2 and croak arity_miss 0+@_, 2;
+    criticize_or_die $item, "Provided data did not pass validation.";
+    my $json = encode_json $item;
+    open my $F, '>', $filename or croak "Could not open $filename for writing: $!";
+    print $F $json or croak "Could not write to $filename: $!";
+    return 1;
+}
+
+sub have_item {
+    my ($item, $filename) = @_;
+    @_ < 1 and croak arity_miss 0+@_, 1;
+    @_ < 2 and $filename = name_file $item->{name};
+    @_ > 2 and croak arity_miss 0+@_, 2;
+    return -e $filename;
+}
+
+##### Stringy/commandy API
+sub add_raw {
+    my ($text) = @_;
+    @_ == 1 or croak arity_miss 0+@_, 1;
+    my $item = decode_json $text;
+    my $filename = name_file;
+    have_item $item->{name}, $filename and croak "An item named $item->{name} is already registered";
+    criticize_or_die $item, "Input to 'add' didn't pass validation.";
+    $item->{created} //= iso_datetime(gmtime);
+    $item->{updated} = iso_datetime(gmtime);
      # TODO: link tags
-    my $text = encode_json($obj);
+    write_data $item, $filename;
+}
+sub show_raw {
+    my ($name) = @_;
+    @_ == 1 or croak arity_miss 0+@_, 1;
+    my $item = read_item $name;
+     # TODO: prettyprint
+    return encode_json $item;
 }
 
 1;
