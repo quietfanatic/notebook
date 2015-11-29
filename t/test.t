@@ -49,14 +49,35 @@ is palace::name_file('a thing/whatever'), 't/test-data/things/a thing%2Fwhatever
 note 'Backend';
 unlink palace::name_file('foo');
 unlink palace::name_file('bar');
+unlink palace::name_file('newfoo');
+
 my $in = {name => 'foo'};
 lives sub { palace::write_item($in) }, 'can use write_item';
 my $out;
 lives sub { $out = palace::read_item('foo') }, 'can use read_item';
 is_deeply $out, $in, 'write_item and read_item roundtrip';
-lives sub { palace::write_item({name => 'bar', misc => {}}) }, 'write_item again';
+
+lives sub { palace::write_item({name => 'bar'}) }, 'write_item again';
+lives sub { palace::update_item('bar', sub { my $i = $_[0]; $i->{misc} = {}; return $i; }) }, 'can use update_item';
+is_deeply palace::read_item('bar'), {name => 'bar', misc => {}}, 'update_item worked correctly';
+
 is_deeply [sort { $a cmp $b } palace::all_names()], ['bar', 'foo'], 'all_names works';
 lives sub { $out = palace::all_items() }, 'all_items lives';
 is_deeply $out, {foo => {name => 'foo'}, bar => {name => 'bar', misc => {}}}, 'all_items works';
+
+is_deeply [palace::validate_everything()], [], 'test data is valid';
+
+lives sub { palace::delete_item('foo') }, 'can use delete_item';
+ok !-e palace::name_file('foo'), 'delete_item did delete the item\'s file';
+
+dies sub { palace::write_item({name => 'bad', bad => undef}) }, 'write_item requires valid data';
+dies sub { palace::update_item('bar', sub{ return {name => 'bar', bad => undef} }) }, 'update_item requires valid data';
+
+note 'raw frontend';
+$in = '{"name":"newfoo"}';
+lives sub { palace::raw_add($in) }, 'can use raw_add';
+lives sub { $out = palace::raw_show('newfoo') }, 'can use raw_show';
+is $out, $in, 'raw_add and raw_show roundtrip';
+dies sub { palace::raw_add($in) }, 'cannot raw_add if it already exists';
 
 done_testing;

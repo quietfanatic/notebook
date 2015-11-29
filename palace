@@ -149,11 +149,19 @@ sub criticize_or_die {
 
 ##### Backend
 
+my %items;  # cache
+
+sub have_item {
+    my ($name) = @_;
+    @_ == 1 or croak arity_miss 0+@_, 1;
+    return exists $items{$name} || -e name_file $name;
+}
+
 sub read_item {
-    my ($name, $filename) = @_;
-    @_ < 1 and croak arity_miss 0+@_, 1;
-    @_ < 2 and $filename = name_file $name;
-    @_ > 2 and croak arity_miss 0+@_, 2;
+    my ($name) = @_;
+    @_ == 1 or croak arity_miss 0+@_, 1;
+    my $filename = name_file $name;
+    exists $items{$name} and return $items{$name};
     criticize_or_die [$name, 'name', '(name given to read_item)'], 'Name given to read_item is invalid.';
     -e $filename or croak "$name is not a registered item";
     open my $F, '<', $filename or croak "Could not open $filename for reading: $!";
@@ -161,28 +169,41 @@ sub read_item {
     my $json = <$F> // croak "Could not read from $filename: $!";
     close $F or croak "Could not close $filename: $!";
     my $item = decode_json $json;
-    criticize_or_die $item, "$filename contained invalid data!";
-    return $item;
+    criticize_or_die $item, "$filename contains invalid data:";
+    return $items{$name} = $item;
 }
 
-sub write_item {
-    my ($item, $filename) = @_;
-    @_ < 1 and croak arity_miss 0+@_, 1;
-    @_ < 2 and $filename = name_file $item->{name};
-    @_ > 2 and croak arity_miss 0+@_, 2;
-    criticize_or_die $item, "Provided data did not pass validation.";
+sub write_item {  # TODO: update links, dates
+    my ($item) = @_;
+    @_ == 1 or croak arity_miss 0+@_, 1;
+    criticize_or_die $item, "Provided data did not pass validation:";
+    my $filename = name_file $item->{name};
     my $json = encode_json $item;
     open my $F, '>', $filename or croak "Could not open $filename for writing: $!";
     print $F $json or croak "Could not write to $filename: $!";
+    $items{$item->{name}} = $item;
+    close $F or croak "Could not close $filename: $!";
     return 1;
 }
 
-sub have_item {
-    my ($item, $filename) = @_;
-    @_ < 1 and croak arity_miss 0+@_, 1;
-    @_ < 2 and $filename = name_file $item->{name};
-    @_ > 2 and croak arity_miss 0+@_, 2;
-    return -e $filename;
+sub delete_item {  # TODO: update links
+    my ($name) = @_;
+    @_ == 1 or croak arity_miss 0+@_, 1;
+    my $filename = name_file $name;
+    unlink $filename or croak "Could not delete $filename: $!";
+    delete $items{$name};
+    return 1;
+}
+
+sub update_item {  # TODO: update links, name
+    my ($name, $proc) = @_;
+    @_ == 2 or croak arity_miss 0+@_, 1;
+    criticize_or_die [$name, 'name', '(name given to update_item)'], 'Name given to update_item is invalid.';
+    ref $proc eq 'CODE' or croak "Second parameter given to update_item is not a CODE ref.";
+    my $item = $proc->(read_item $name);
+    criticize_or_die $item, "Item returned from procedure given to update_item did not pass validation:";
+    $item->{name} eq $name or croak "Procedure given to update_item changed the item's name (this is NYI).";
+    return 1;
 }
 
 sub all_names {
@@ -197,32 +218,41 @@ sub all_names {
 }
 sub all_items {
     @_ == 0 or croak arity_miss 0+@_, 0;
-    my %items;
     for (all_names) {
-        $items{$_} = read_item($_);
+        read_item($_);
     }
-    return \%items;
+    return \%items;  # Please don't modify
 }
 
 sub validate_everything {
     @_ == 0 or croak arity_miss 0+@_, 0;
-     # TODO
+    all_items;
+    my @errs;
+    for (keys %items) {
+        $items{$_}{name} eq $_ or push @errs, "Name property of $_ doesn't match its name.";
+        my @es = criticize $items{$_};
+        if (@es) {
+            push @errs, "Invalid data in $_:";
+            push @errs, map "    $_", @es;
+        }
+         # TODO: validate links
+    }
+    return @errs;
 }
 
 
-##### Stringy/commandy API
-sub add_raw {
+##### Raw JSON API
+
+sub raw_add {
     my ($text) = @_;
     @_ == 1 or croak arity_miss 0+@_, 1;
     my $item = decode_json $text;
-    my $filename = name_file;
-    have_item $item->{name}, $filename and croak "An item named $item->{name} is already registered";
+    have_item $item->{name} and croak "An item named $item->{name} is already registered";
     criticize_or_die $item, "Input to 'add' didn't pass validation.";
-    $item->{created} //= iso_datetime(gmtime);
-    $item->{updated} = iso_datetime(gmtime);
-    write_data $item, $filename;
+    my $filename = name_file $item->{name};
+    write_item $item;
 }
-sub show_raw {
+sub raw_show {
     my ($name) = @_;
     @_ == 1 or croak arity_miss 0+@_, 1;
     my $item = read_item $name;
