@@ -119,8 +119,7 @@ sub schema_char {
  # Returns list of strings.
 sub criticize {
     my ($obj, $schema, $path) = @_;
-    @_ < 1 and croak arity_miss 0+@_, 1;
-    @_ < 2 and $schema = $item_schema;
+    @_ < 2 and croak arity_miss 0+@_, 2;
     @_ < 3 and $path = 'TOP' if @_ < 3;
     @_ > 3 and croak arity_miss 0+@_, 3;
     if (!defined $schema) {
@@ -209,10 +208,10 @@ sub criticize {
         return "Schema itself is broken at $path";
     }
 }
-sub criticize_or_die {
-    my ($obj, $mess) = @_;
-    @_ == 2 or croak arity_miss 0+@_, 2;
-    my @errs = ref $obj eq 'ARRAY' ? criticize(@$obj) : criticize($obj);
+sub criticize_die {
+    my ($obj, $schema, $mess) = @_;
+    @_ == 3 or croak arity_miss 0+@_, 3;
+    my @errs = criticize $obj, $schema;
     if (@errs) {
         die join("\n    ", $mess, @errs) . "\n";
     }
@@ -252,7 +251,7 @@ sub transaction {
         if (-e "$datadir/index.json") {
             $index = decode_json slurp "$datadir/index.json";
              # Is this check worth the performance hit?  Profiling needed.
-            criticize_or_die [$index, $index_schema], "Internal error: index.json is not valid!";
+            criticize_die $index, $index_schema, "Internal error: index.json is not valid!";
         }
         else {
             $index = {
@@ -281,7 +280,7 @@ sub transaction {
                     die "Changing name of item is NYI, sorry.\n";
                 }
                 my $old_event = $events{$index->{items}{$_}};
-                criticize_or_die $write_items{$_}, "Written item $_ did not pass validation.";
+                criticize_die $write_items{$_}, $item_schema, "Written item $_ did not pass validation.";
                 if (process_changes($write_items{$_}, $old_event->{changes}{$_}{item})) {
                     $changed = 1;
                     $event->{changes}{$_} = {
@@ -292,10 +291,10 @@ sub transaction {
                 }
             }
             $event->{finished_at} = iso_datetime(gmtime(now));
-            criticize_or_die [$event, $event_schema], "Internal error: tried to write invalid event!";
+            criticize_die $event, $event_schema, "Internal error: tried to write invalid event!";
             if ($changed) {
                 $index->{updated_at} = $event->{finished_at};
-                criticize_or_die [$index, $index_schema], "Internal error: tried to write invalid index!";
+                criticize_die $index, $index_schema, "Internal error: tried to write invalid index!";
             }
              # Commit event
             print $EVENT encode_json $event;
@@ -333,7 +332,7 @@ sub event {
     defined $transaction or croak "event() called outside of a transaction.";
     if (!exists $events{$events{$id}}) {
         my $event = decode_json slurp "$datadir/events/$id";
-        criticize_or_die [$event, $event_schema], "Internal error: event $id had invalid data.";
+        criticize_die $event, $event_schema, "Internal error: event $id had invalid data.";
         $events{$id} = $event;
     }
     return $events{$id};

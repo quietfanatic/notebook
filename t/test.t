@@ -48,12 +48,12 @@ my $item = {
         extra => [qw(a b c d e)],
     },
 };
-is_deeply [palace::criticize($item)], [], 'various properties are valid';
+is_deeply [palace::criticize($item, $palace::item_schema)], [], 'various properties are valid';
 $item->{nothing} = 'foo';
-is_deeply [palace::criticize($item)], ['Unallowed property nothing at TOP'], 'criticize rejects unallowed properties';
+is_deeply [palace::criticize($item, $palace::item_schema)], ['Unallowed property nothing at TOP'], 'criticize rejects unallowed properties';
 delete $item->{nothing};
 delete $item->{name};
-is_deeply [palace::criticize($item)], ['Missing required property name at TOP'], 'criticize requires required properties';
+is_deeply [palace::criticize($item, $palace::item_schema)], ['Missing required property name at TOP'], 'criticize requires required properties';
 $item->{name} = 'foo';
 my $index = {
     changed_at => '1970-01-01T00:00:00Z',
