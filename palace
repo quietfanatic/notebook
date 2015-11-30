@@ -14,6 +14,7 @@ sub clone { require Clone; goto &Clone::clone; }
 
  # Overridden for testing
 our $datadir = 'data';
+our $test_time;
 
 ##### Misc utilities
 sub arity_miss {
@@ -50,10 +51,9 @@ sub mkdirs {
     }
 }
 
-##### Stringy utilities
-
-sub iso_datetime { ($_[5]+1900)."-".($_[4]+01)."-$_[3]T$_[2]:$_[1]:$_[0]Z" }
-sub file_datetime { ($_[5]+1900)."-".($_[4]+01)."-$_[3]_$_[2]-$_[1]-$_[0]" }
+sub now { return $test_time // time; }
+sub iso_datetime { sprintf '%04d-%02d-%02dT%02d:%02d:%02dZ', $_[5]+1900, $_[4]+01, $_[3], $_[2], $_[1], $_[0] }
+sub file_datetime { sprintf '%04d-%02d-%02d_%02d-%02d-%02d', $_[5]+1900, $_[4]+01, $_[3], $_[2], $_[1], $_[0] }
 
 
 ##### Validation
@@ -250,7 +250,7 @@ sub transaction {
             };
         }
         my $event = {
-            started_at => iso_datetime(gmtime),
+            started_at => iso_datetime(gmtime(now)),
             source => { interface => 'unknown' },  # TODO: read %ENV
             request => null,
             response => null,
@@ -259,7 +259,7 @@ sub transaction {
         @r = $proc->();
          # Finish event structure
         while (1) {
-            $event->{id} = file_datetime(gmtime) . '_' . sprintf("%04x", int(rand(65536)));
+            $event->{id} = file_datetime(gmtime(now)) . '_' . sprintf("%04x", int(rand(65536)));
             last unless -e "$datadir/events/$event->{id}.json";
         }
         my $event_filename = "$datadir/events/$event->{id}.json";
@@ -283,7 +283,7 @@ sub transaction {
                     $index->{items}{$_} = $event->{id};
                 }
             }
-            $event->{finished_at} = iso_datetime(gmtime);
+            $event->{finished_at} = iso_datetime(gmtime(now));
             criticize_or_die [$event, $event_schema], "Internal error: tried to write invalid event!";
             if ($changed) {
                 $index->{updated_at} = $event->{finished_at};
