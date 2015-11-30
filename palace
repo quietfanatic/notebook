@@ -52,11 +52,20 @@ sub mkdirs {
     }
 }
 
-sub now { defined $test_time ? $test_time++ : time };
-sub now_hires { defined $test_time ? ($test_time++, 123456) : Time::HiRes::gettimeofday(); }
-sub iso_datetime { sprintf '%04d-%02d-%02dT%02d:%02d:%02dZ', $_[5]+1900, $_[4]+01, $_[3], $_[2], $_[1], $_[0] }
-sub file_datetime { sprintf '%04d-%02d-%02d_%02d-%02d-%02d', $_[5]+1900, $_[4]+01, $_[3], $_[2], $_[1], $_[0] }
-
+sub now { defined $test_time ? $test_time++ : time }
+sub now_hires { defined $test_time ? ($test_time++, 123456) : Time::HiRes::gettimeofday() }
+sub iso_datetime {
+    return sprintf '%04d-%02d-%02dT%02d:%02d:%02dZ',
+        $_[5]+1900, $_[4]+01, $_[3], $_[2], $_[1], $_[0];
+}
+sub file_datetime {
+    return sprintf '%04d-%02d-%02d_%02d-%02d-%02d',
+        $_[5]+1900, $_[4]+01, $_[3], $_[2], $_[1], $_[0];
+}
+sub new_event_id {
+    my ($s, $us) = now_hires;
+    return sprintf '%s_%06d', file_datetime(gmtime($s)), $us;
+}
 
 ##### Validation
 
@@ -260,11 +269,7 @@ sub transaction {
          # Do the actual code
         @r = $proc->();
          # Finish event structure
-        while (1) {
-            my ($s, $us) = now_hires;
-            $event->{id} = file_datetime(gmtime($s)) . '_' . sprintf("%06d", $us);
-            last unless -e "$datadir/events/$event->{id}.json";
-        }
+        $event->{id} = new_event_id() until !-e "$datadir/events/$event->{id}.json";
         my $event_filename = "$datadir/events/$event->{id}.json";
         open my $EVENT, '>', $event_filename or die "Could not open $event_filename for writing: $!";
         chmod 0440, $EVENT or die "Could not chmod event: $!\n";
