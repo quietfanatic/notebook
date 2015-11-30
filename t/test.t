@@ -3,6 +3,7 @@ use strict;
 use warnings;
 no warnings 'once';
 use Test::More;
+use File::Path;
 require 'palace';
 
 sub lives {
@@ -84,5 +85,9 @@ my $event = {
     },
 };
 is_deeply [palace::criticize($event, $palace::event_schema)], [], 'valid event passes criticism';
+
+
+note 'Backend';
+File::Path::remove_tree("t/test-data");
 
 done_testing;
