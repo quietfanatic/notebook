@@ -47,10 +47,6 @@ delete $object->{nothing};
 delete $object->{name};
 is_deeply [palace::criticize($object)], ['Missing required property name at TOP'], 'criticize requires required properties';
 
-note 'Name mangling';
-is palace::encode_name('asdf%\'"/foo'), 'asdf%25%27%22%2Ffoo', 'encode_name';
-is palace::decode_name('asdf%25%27%22%2Ffoo'), 'asdf%\'"/foo', 'decode_name';
-is palace::name_file('a thing/whatever'), 't/test-data/things/a thing%2Fwhatever.json', 'name_file';
 =cut
 note 'Backend';
 unlink palace::name_file('foo');

@@ -55,25 +55,6 @@ sub mkdirs {
 sub iso_datetime { ($_[5]+1900)."-".($_[4]+01)."-$_[3]T$_[2]:$_[1]:$_[0]Z" }
 sub file_datetime { ($_[5]+1900)."-".($_[4]+01)."-$_[3]_$_[2]-$_[1]-$_[0]" }
 
-sub encode_name {
-    my ($name) = @_;
-    $name =~ s/([\/\\?%*:|"'<>.])/sprintf '%%%02X', ord($1)/eg;
-    return $name;
-}
-sub decode_name {
-    my ($name) = @_;
-    $name =~ s/%([a-zA-Z0-9]{2})/chr hex $1/eg;
-    return $name;
-}
-sub name_file {
-    my $ename = encode_name $_[0];
-    return "$datadir/things/$ename.json";
-}
-sub name_file_backup {
-    my $ename = encode_name $_[0];
-    return "$datadir/backup/$ename.json";
-}
-
 
 ##### Validation
 
