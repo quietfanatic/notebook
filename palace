@@ -4,6 +4,7 @@ use v5.18;
 use warnings;
 use bytes;  # Assume everything is UTF-8
 use JSON::MaybeXS ':all';
+use Time::HiRes;
 
 sub null () { undef }
 sub true () { JSON->true }
@@ -51,7 +52,8 @@ sub mkdirs {
     }
 }
 
-sub now { return $test_time // time; }
+sub now { defined $test_time ? $test_time++ : time };
+sub now_hires { defined $test_time ? ($test_time++, 123456) : Time::HiRes::gettimeofday(); }
 sub iso_datetime { sprintf '%04d-%02d-%02dT%02d:%02d:%02dZ', $_[5]+1900, $_[4]+01, $_[3], $_[2], $_[1], $_[0] }
 sub file_datetime { sprintf '%04d-%02d-%02d_%02d-%02d-%02d', $_[5]+1900, $_[4]+01, $_[3], $_[2], $_[1], $_[0] }
 
@@ -259,7 +261,8 @@ sub transaction {
         @r = $proc->();
          # Finish event structure
         while (1) {
-            $event->{id} = file_datetime(gmtime(now)) . '_' . sprintf("%04x", int(rand(65536)));
+            my ($s, $us) = now_hires;
+            $event->{id} = file_datetime(gmtime($s)) . '_' . sprintf("%06d", $us);
             last unless -e "$datadir/events/$event->{id}.json";
         }
         my $event_filename = "$datadir/events/$event->{id}.json";

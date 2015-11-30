@@ -23,8 +23,10 @@ $palace::datadir = 't/test-data';
 $palace::test_time = 0;
 
 note 'Datetimes';
-is palace::iso_datetime(gmtime(palace::now())), '1970-01-01T00:00:00Z', 'iso_datetime seems to work';
-is palace::file_datetime(gmtime(palace::now())), '1970-01-01_00-00-00', 'file_datetime seems to work';
+is palace::now(), 0, 'now seems to work';
+is_deeply [palace::now_hires()], [1, 123456], 'now_hires seems to work';
+is palace::iso_datetime(gmtime(palace::now())), '1970-01-01T00:00:02Z', 'iso_datetime seems to work';
+is palace::file_datetime(gmtime(palace::now())), '1970-01-01_00-00-03', 'file_datetime seems to work';
 
 note 'Criticize';
 my $item = {
