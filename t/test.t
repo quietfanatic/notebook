@@ -25,12 +25,16 @@ mkdir 't/test-data/things';
 note 'Criticize';
 my $object = {
     name => 'whatever',
-    uri => 'http://example.com/whatever',
-    added_at => '1970-01-01T00:00:00Z',
-    updated_at => '1970-01-01T00:00:00Z',
+    origin => {
+        uri => 'http://example.com/whatever',
+    },
     tags => ['a', 'b'],
-    tagged => ['thing1', 'thing2'],
-    comments => ['this is a thing', 'haha I\'m typing words'],
+    contents => ['this is a thing', 'haha I\'m typing words'],
+    auto => {
+        created_at => '1970-01-01T00:00:00Z',
+        changed_at => '1970-01-01T00:00:00Z',
+        tagged => ['thing1', 'thing2'],
+    },
     misc => {
         anything => 'goes',
         extra => [qw(a b c d e)],

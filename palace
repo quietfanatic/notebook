@@ -44,13 +44,16 @@ sub splat {
 
 sub mkdirs {
     for (@_) {
-        -d $_ or mkdir $_ or die "Failed to mkdir $_: $!\n";
+        next if -d $_;
+        mkdir $_ or die "Failed to mkdir $_: $!\n";
+        chmod 0770, $_ or die "Failed to chmod $_: $!\n";
     }
 }
 
 ##### Stringy utilities
 
 sub iso_datetime { ($_[5]+1900)."-".($_[4]+01)."-$_[3]T$_[2]:$_[1]:$_[0]Z" }
+sub file_datetime { ($_[5]+1900)."-".($_[4]+01)."-$_[3]_$_[2]-$_[1]-$_[0]" }
 
 sub encode_name {
     my ($name) = @_;
@@ -76,22 +79,26 @@ sub name_file_backup {
 
  # Ad-hoc, doesn't conform to any standardized schema schema.
 our $index_schema = {
-    updated_at => 'datetime!',  # When this file specifically was last changed
+    changed_at => 'datetime!',  # When this file specifically was last changed
     items => { '!' => true, '*' => 'string' },
 };
 our $item_schema = {
     '?' => true,  # Deleted if null
     name => 'name!',
-    created_at => 'datetime!',
     title => 'string',
     origin => {
         uri => 'uri!',
         originated_at => 'datetime',
     },
     tags => ['name', '!'],
-    tagged => ['name', '!'],
     contents => ['string', '!'],
     misc => { '*' => '*?' },  # Or perhaps this should be toplevel
+    auto => {  # Things not manually writable (changes will be reverted)
+        '!' => true,
+        created_at => 'datetime!',
+        changed_at => 'datetime!',  # Only tracks manual changes (nothing in auto)
+        tagged => ['name', '!'],
+    },
 };
 our $event_schema = {
     id => 'string!',
@@ -99,7 +106,7 @@ our $event_schema = {
     finished_at => 'datetime!',
     source => {
         '!' => true,
-        interface => 'string',
+        interface => 'string!',
         '*' => '*?',
     },
     request => '*?!',
@@ -203,11 +210,6 @@ sub criticize {
         $obj =~ /^\d+$/ or return "Value at $path is not an integer";
         return ();
     }
-    elsif ($schema =~ /command/) {
-        ref $obj eq '' or return "Value at $path is not a string, let along a command";
-        $obj =~ $command_match or return "Value at $path is not a valid command";
-        return ();
-    }
     elsif ($schema =~ /\*/) {
         return ();  # Anything goes
     }
@@ -223,6 +225,7 @@ sub criticize_or_die {
         die join("\n    ", $mess, @errs) . "\n";
     }
 }
+
 
 ##### Backend
 
@@ -247,8 +250,9 @@ sub transaction {
     }
     $transaction = $mode;
      # Start
+    mkdirs $datadir;
     open my $LOCK, '>', "$datadir/lock" or croak "Failed to acquire $datadir/lock: $!\n";
-    flock $LOCK, $lock_mode or croak "Failed to acquire $datadir/lock: $!\n";
+    flock $LOCK, $mode or croak "Failed to acquire $datadir/lock: $!\n";
     my @r;
     eval {
          # Generate necessary structure
@@ -266,7 +270,7 @@ sub transaction {
         }
         my $event = {
             started_at => iso_datetime(gmtime),
-            source => { interface => 'unknown' },
+            source => { interface => 'unknown' },  # TODO: read %ENV
             request => null,
             response => null,
         };
@@ -274,33 +278,50 @@ sub transaction {
         @r = $proc->();
          # Finish event structure
         while (1) {
-            $event->{id} = iso_datetime(gmtime) . '_' . sprintf("%04x", int(rand(65536)));
+            $event->{id} = file_datetime(gmtime) . '_' . sprintf("%04x", int(rand(65536)));
             last unless -e "$datadir/events/$event->{id}.json";
         }
+        my $event_filename = "$datadir/events/$event->{id}.json";
+        open my $EVENT, '>', $event_filename or die "Could not open $event_filename for writing: $!";
+        chmod 0440, $EVENT or die "Could not chmod event: $!\n";
         if ($transaction == WRITE) {
+            my $changed = 0;
+            $event->{changes} = {};  # Mark that it was a write transaction even if there are no changes
             for (keys %write_items) {
                 if ($write_items{$_}{name} ne $_) {
-                    die "Changing name of item is NYI, sorry\n";
+                    die "Changing name of item is NYI, sorry.\n";
                 }
-                my $old_event = $events->{$index->{items}{$_}};
-                if (!defined $old_event or !deep_eq($write_items{$_}, $old_event->{changes}{$_}{item})) {
-                    criticize_or_die $write_items{$_};
+                my $old_event = $events{$index->{items}{$_}};
+                criticize_or_die $write_items{$_}, "Written item $_ did not pass validation.";
+                if (process_changes($write_items{$_}, $old_event->{changes}{$_}{item})) {
+                    $changed = 1;
                     $event->{changes}{$_} = {
                         previous => defined $old_event ? $old_event->{id} : null,
-                        item => $write_items{$_};
+                        item => $write_items{$_},
                     };
                     $index->{items}{$_} = $event->{id};
                 }
             }
+            $event->{finished_at} = iso_datetime(gmtime);
+            criticize_or_die [$event, $event_schema], "Internal error: tried to write invalid event!";
+            if ($changed) {
+                $index->{updated_at} = $event->{finished_at};
+                criticize_or_die [$index, $index_schema], "Internal error: tried to write invalid index!";
+            }
+             # Commit event
+            print $EVENT encode_json $event;
+            close $EVENT or die "Could not close $event_filename: $!\n";
+             # Commit index
+            if ($changed) {
+                splat "$datadir/index.json", encode_json($index);
+            }
         }
-        $event->{finished_at} = iso_datetime(gmtime);
-         # Commit event
     };
     my $mess = $@;
      # Clear data
     $index = undef;
     %events = ();
-    %items = ();
+    %write_items = ();
     $transaction = undef;
      # Release lock and finish dying if necessary
     flock $LOCK, 8 or $mess .= "Failed to release $datadir/lock: $!\n";
@@ -315,162 +336,84 @@ sub transaction {
     }
 };
 
- # Inside a transaction, returns a read-writable item.
+ # Returns a read-only event with the given id.  Dies if non-existent
+sub event {
+    my ($id) = @_;
+    @_ == 1 or croak arity_miss 0+@_, 1;
+    defined $id or croak "ID passed to event() as parameter is undefined.";
+    defined $transaction or croak "event() called outside of a transaction.";
+    if (!exists $events{$events{$id}}) {
+        my $event = decode_json slurp "$datadir/events/$id";
+        criticize_or_die [$event, $event_schema], "Internal error: event $id had invalid data.";
+        $events{$id} = $event;
+    }
+    return $events{$id};
+}
+ # Returns the event for this item, or undef if not registered
+sub item_event {
+    my ($name) = @_;
+    @_ == 1 or croak arity_miss 0+@_, 1;
+    defined $name or croak "Name passed to item_event() as parameter is undefined.";
+    defined $transaction or croak "item_event() called outside of a transaction.";
+    exists $index->{items}{$name} or return undef;
+    my $event = event($index->{items}{$name});
+    exists $event->{changes}{$name} or die "Internal error: Event $event->{id} was referred to for item $name, but it didn't contain it.\n";
+    return $event;
+}
+ # Returns previous event *ID* for this event and item
+sub item_event_previous {
+    my ($name, $id) = @_;
+    @_ == 2 or croak arity_miss 0+@_, 1;
+    defined $name or croak "Name passed to item_event_previous() as first parameter is undefined.";
+    defined $id or croak "ID passed to item_event_previous() as second parameter is undefined.";
+    my $event = event($id);
+    exists $event->{changes}{$name} or croak "Event and item passed to item_event_previous() don't match.";
+    return $event->{changes}{$name}{previous};
+}
+
+ # Inside a transaction, returns a readable or read-writable item.
+ # Returns undef if the item doesn't exist or is deleted.
 sub item {
     my ($name) = @_;
     @_ == 1 or croak arity_miss 0+@_, 1;
     defined $name or croak "Name passed to item() as parameter is undefined.";
-    $in_transaction or croak "item('$name') called outside of transaction.";
-    if (!defined $index) {
-        $index = decode_json slurp("$datadir/index.json");
-         # This may not be worth the performance hit.
-        criticize_or_die [$i, $index_schema], "Internal error: index.json is not valid!";
+    if ($transaction == READ) {
+        my $event = item_event($name) // return undef;
+        return $event->{changes}{$name}{item};
     }
-    if (exists $index->{items}{$name}) {
+    elsif ($transaction == WRITE) {
+        if (!exists $write_items{$name}) {
+            my $event = item_event($name);
+            if (defined $event) {
+                $write_items{$name} = clone($event->{changes}{$name}{item});
+            }
+            else {
+                $write_items{$name} = undef;
+            }
+        }
+        return $write_items{$name};
+    }
+    else {
+        croak "item('$name') called outside of a transaction.";
     }
 }
 
-
- # Only to be used in a transaction
-sub read_index {
-    return if defined $index;
-    my $i = decode_json slurp("$datadir/index.json");
-    criticize_or_die [$i, $index_schema], "Internal error: index.json is not valid!";
-    $index = $i;
-}
-
-sub read_event {
-}
-
-sub read_item {
-    my ($name) = @_;
-    @_ == 1 or croak arity_miss 0+@_, 1;
-    defined $name or croak arity_miss
-    return $items{$name} if exists $items{$name};
-    read_index;
-    my $event = $index->{items}{name} // return undef;
-    read_event($event);
-}
-
-sub have_item {
-    my ($name) = @_;
-    @_ == 1 or croak arity_miss 0+@_, 1;
-    return transaction sub {
-        exists $items{$name} || -e name_file $name;
-    };
-}
-
-sub read_item {
-    my ($name) = @_;
-    @_ == 1 or croak arity_miss 0+@_, 1;
-    my $filename = name_file $name;
-    exists $items{$name} and return $items{$name};
-    criticize_or_die [$name, 'name', '(name given to read_item)'], 'Name given to read_item is invalid.';
-    return transaction sub {
-        -e $filename or croak "$name is not a registered item";
-        my $json = slurp $filename;
-        my $item = decode_json $json;
-        criticize_or_die $item, "$filename contains invalid data:";
-        return $items{$name} = $item;
-    };
-}
-
-sub write_item {  # TODO: update links, dates
-    my ($item) = @_;
-    @_ == 1 or croak arity_miss 0+@_, 1;
-    criticize_or_die $item, "Provided data did not pass validation:";
-    my $json = encode_json $item;
-    return transaction sub {
-        $to_write{encode_name($item->{name})} = $json;
-        $items{$item->{name}} = $item;
-        return 1;
-    };
-}
-
-sub delete_item {  # TODO: update links
-    my ($name) = @_;
-    @_ == 1 or croak arity_miss 0+@_, 1;
-    return transaction sub {
-        $to_write{encode_name($name)} = undef;
-        return 1;
-    };
-}
-
-sub update_item {  # TODO: update links, name
-    my ($name, $proc) = @_;
-    @_ == 2 or croak arity_miss 0+@_, 1;
-    criticize_or_die [$name, 'name', '(name given to update_item)'], 'Name given to update_item is invalid.';
-    ref $proc eq 'CODE' or croak "Second parameter given to update_item is not a CODE ref.";
-    return transaction sub {
-        my $item = $proc->(read_item $name);
-        criticize_or_die $item, "Item returned from procedure given to update_item did not pass validation:";
-        $item->{name} eq $name or croak "Procedure given to update_item changed the item's name (this is NYI).";
-        write_item $item;
-    };
-    return 1;
-}
-
+ # Returns a list of all item names
 sub all_names {
     @_ == 0 or croak arity_miss 0+@_, 0;
-    my $dir = "$datadir/things";
-    return transaction sub {
-        opendir my $D, $dir or croak "Could not open $dir: $!\n";
-        my @filenames = map {
-            /^(.*)\.json$/ ? $1 : ();
-        } readdir $D;
-        closedir $D or croak "Could not close $dir: $!\n";
-        return map decode_name($_), @filenames;
-    };
+    defined $transaction or croak "all_names() called outside of a transaction.";
+    return keys %{$index->{items}};
 }
+ # Returns a list of pairs of item names with items (aka a raw hash, not a reference)
 sub all_items {
     @_ == 0 or croak arity_miss 0+@_, 0;
-    my $copy = !$in_transaction;
-    return transaction sub {
-        for (all_names) {
-            read_item($_);
-        }
-        return $copy ? {%items} : \%items;  # Please don't modify
-    };
+    defined $transaction or croak "all_items() called outside of a transaction.";
+    return map ($_, item($_)), all_names;
 }
 
 sub validate_everything {
     @_ == 0 or croak arity_miss 0+@_, 0;
-    return transaction sub {
-        all_items;
-        my @errs;
-        for (keys %items) {
-            $items{$_}{name} eq $_ or push @errs, "Name property of $_ doesn't match its name.";
-            my @es = criticize $items{$_};
-            if (@es) {
-                push @errs, "Invalid data in $_:";
-                push @errs, map "    $_", @es;
-            }
-             # TODO: validate links
-        }
-        return @errs;
-    };
+    croak "validate_everything is not yet implemented.";
 }
 
-
-##### Raw JSON API
-
-sub raw_add {
-    my ($text) = @_;
-    @_ == 1 or croak arity_miss 0+@_, 1;
-    my $item = decode_json $text;
-    return transaction sub {
-        have_item $item->{name} and croak "An item named $item->{name} is already registered";
-        criticize_or_die $item, "Input to 'add' didn't pass validation.";
-        my $filename = name_file $item->{name};
-        write_item $item;
-        return 1;
-    };
-}
-sub raw_show {
-    my ($name) = @_;
-    @_ == 1 or croak arity_miss 0+@_, 1;
-    my $item = read_item $name;
-    return encode_json $item;
-}
-=cut
 1;
