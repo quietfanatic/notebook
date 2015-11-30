@@ -53,7 +53,36 @@ is_deeply [palace::criticize($item)], ['Unallowed property nothing at TOP'], 'cr
 delete $item->{nothing};
 delete $item->{name};
 is_deeply [palace::criticize($item)], ['Missing required property name at TOP'], 'criticize requires required properties';
+$item->{name} = 'foo';
 my $index = {
+    changed_at => '1970-01-01T00:00:00Z',
+    items => {
+        foo => '1970-01-01_00-00-00_435789',
+        bar => '2134-11-21_21-52-10_010002',
+    },
 };
+is_deeply [palace::criticize($index, $palace::index_schema)], [], 'valid index passes criticism';
+my $event = {
+    id => '1970-01-01_00-00-00_435789',
+    started_at => '1970-01-01T00:00:00Z',
+    finished_at => '1970-01-01T00:00:00Z',
+    source => {
+        interface => 'test',
+        foo => 'bar',
+    },
+    request => 'test',
+    response => 'whatever',
+    changes => {
+        foo => {
+            previous => undef,
+            item => $item,
+        },
+        deleted => {
+            previous => undef,
+            item => undef,
+        }
+    },
+};
+is_deeply [palace::criticize($event, $palace::event_schema)], [], 'valid event passes criticism';
 
 done_testing;
