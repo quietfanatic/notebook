@@ -1,15 +1,16 @@
 #!/usr/bin/perl
 package palace;
-use strict;
-use warnings;
 use v5.18;
+use warnings;
 use bytes;  # Assume everything is UTF-8
 use JSON::MaybeXS ':all';
-use Carp 'croak';
 
 sub null () { undef }
 sub true () { JSON->true }
 sub false () { JSON->false }
+
+sub croak { require Carp; goto &Carp::croak; }
+sub clone { require Clone; goto &Clone::clone; }
 
  # Overridden for testing
 our $datadir = 'data';
@@ -75,28 +76,38 @@ sub name_file_backup {
 
  # Ad-hoc, doesn't conform to any standardized schema schema.
 our $index_schema = {
-    updated => 'datetime',
+    updated_at => 'datetime!',  # When this file specifically was last changed
     items => { '!' => true, '*' => 'string' },
 };
 our $item_schema = {
-    '?' => true,
+    '?' => true,  # Deleted if null
     name => 'name!',
-    title => 'title',
-    uri => 'uri',
-    added_at => 'datetime!',
-    updated_at => 'datetime!',
+    created_at => 'datetime!',
+    title => 'string',
+    origin => {
+        uri => 'uri!',
+        originated_at => 'datetime',
+    },
     tags => ['name', '!'],
     tagged => ['name', '!'],
-    comments => ['string', '!'],
-    auto => { '*' => '*' },
-    misc => { '*' => '*' },
+    contents => ['string', '!'],
+    misc => { '*' => '*?' },  # Or perhaps this should be toplevel
 };
 our $event_schema = {
-    received_at => 'datetime!',
-    processed_at => 'datetime!',
-    request => 'command!',
+    id => 'string!',
+    started_at => 'datetime!',
+    finished_at => 'datetime!',
+    source => {
+        '!' => true,
+        interface => 'string',
+        '*' => '*?',
+    },
+    request => '*?!',
     response => '*?!',
-    items => { '*' => $item_schema },
+    changes => { '*' => {
+        previous => 'string?!',
+        item => $item_schema,
+    }},
 };
 
 sub schema_char {
@@ -192,6 +203,11 @@ sub criticize {
         $obj =~ /^\d+$/ or return "Value at $path is not an integer";
         return ();
     }
+    elsif ($schema =~ /command/) {
+        ref $obj eq '' or return "Value at $path is not a string, let along a command";
+        $obj =~ $command_match or return "Value at $path is not a valid command";
+        return ();
+    }
     elsif ($schema =~ /\*/) {
         return ();  # Anything goes
     }
@@ -209,12 +225,113 @@ sub criticize_or_die {
 }
 
 ##### Backend
-=cut
-my $index;  # Loaded only if necessary
-my %updates;
-my %to_write;
-my $in_transaction = 0;
 
+ # Current state, loaded if necessary
+my $index;
+my %events;
+ # Editable.  Changes will be validated then committed in one event.
+my %write_items;
+my $event;
+
+ # Must wrap this around any access.
+my $transaction;
+sub READ () { return 1; }  # LOCK_SH
+sub WRITE () { return 2; }  # LOCK_EX
+sub transaction {
+    my ($mode, $proc) = @_;
+    @_ == 2 or arity_miss 0+@_, 1;
+    $mode eq READ or $mode eq WRITE or die "Invalid transaction mode '$mode' (must be READ or WRITE)";
+    if (defined $transaction) {
+        $transaction == $mode or die "Cannot nest transactions of different types.";
+        return $proc->();
+    }
+    $transaction = $mode;
+     # Start
+    open my $LOCK, '>', "$datadir/lock" or croak "Failed to acquire $datadir/lock: $!\n";
+    flock $LOCK, $lock_mode or croak "Failed to acquire $datadir/lock: $!\n";
+    my @r;
+    eval {
+         # Generate necessary structure
+        mkdirs "$datadir/events";
+        if (-e "$datadir/index.json") {
+            $index = decode_json slurp "$datadir/index.json";
+             # Is this check worth the performance hit?  Profiling needed.
+            criticize_or_die [$index, $index_schema], "Internal error: index.json is not valid!";
+        }
+        else {
+            $index = {
+                latest_event => null,
+                items => {},
+            };
+        }
+        my $event = {
+            started_at => iso_datetime(gmtime),
+            source => { interface => 'unknown' },
+            request => null,
+            response => null,
+        };
+         # Do the actual code
+        @r = $proc->();
+         # Finish event structure
+        while (1) {
+            $event->{id} = iso_datetime(gmtime) . '_' . sprintf("%04x", int(rand(65536)));
+            last unless -e "$datadir/events/$event->{id}.json";
+        }
+        if ($transaction == WRITE) {
+            for (keys %write_items) {
+                if ($write_items{$_}{name} ne $_) {
+                    die "Changing name of item is NYI, sorry\n";
+                }
+                my $old_event = $events->{$index->{items}{$_}};
+                if (!defined $old_event or !deep_eq($write_items{$_}, $old_event->{changes}{$_}{item})) {
+                    criticize_or_die $write_items{$_};
+                    $event->{changes}{$_} = {
+                        previous => defined $old_event ? $old_event->{id} : null,
+                        item => $write_items{$_};
+                    };
+                    $index->{items}{$_} = $event->{id};
+                }
+            }
+        }
+        $event->{finished_at} = iso_datetime(gmtime);
+         # Commit event
+    };
+    my $mess = $@;
+     # Clear data
+    $index = undef;
+    %events = ();
+    %items = ();
+    $transaction = undef;
+     # Release lock and finish dying if necessary
+    flock $LOCK, 8 or $mess .= "Failed to release $datadir/lock: $!\n";
+    close $LOCK or $mess .= "Failed to close $datadir/lock: $!\n";
+    $mess and die $mess;
+     # Annoying contextual return hack
+    if (@r == 1) {
+        return $r[0];
+    }
+    else {
+        return @r;
+    }
+};
+
+ # Inside a transaction, returns a read-writable item.
+sub item {
+    my ($name) = @_;
+    @_ == 1 or croak arity_miss 0+@_, 1;
+    defined $name or croak "Name passed to item() as parameter is undefined.";
+    $in_transaction or croak "item('$name') called outside of transaction.";
+    if (!defined $index) {
+        $index = decode_json slurp("$datadir/index.json");
+         # This may not be worth the performance hit.
+        criticize_or_die [$i, $index_schema], "Internal error: index.json is not valid!";
+    }
+    if (exists $index->{items}{$name}) {
+    }
+}
+
+
+ # Only to be used in a transaction
 sub read_index {
     return if defined $index;
     my $i = decode_json slurp("$datadir/index.json");
@@ -222,40 +339,18 @@ sub read_index {
     $index = $i;
 }
 
-sub transaction {
-    my ($proc) = @_;
-    @_ == 1 or arity_miss 0+@_, 1;
-    if (!$in_transaction) {
-        $in_transaction = 1;
-         # Generate necessary structure
-        mkdirs $datadir, "$datadir/updates";
-         # Start
-        open my $LOCK, '>', "$datadir/lock";
-        flock $LOCK, 2 or croak "Failed to acquire lock: $!\n";
-         # Do the actual code
-        my @r = $proc->();
-         # Finish
-        if (%write) {
-            my $changes = {
-                'time' => iso_datetime(gmtime),
-                'updates' => \%write,
-            };
-        }
-        $read = undef;
-        $write = undef;
-        $in_transaction = 0;
-         # Annoying contextual return hack
-        if (@r == 1) {
-            return $r[0];
-        }
-        else {
-            return @r;
-        }
-    }
-    else {
-        goto &$proc;
-    }
-};
+sub read_event {
+}
+
+sub read_item {
+    my ($name) = @_;
+    @_ == 1 or croak arity_miss 0+@_, 1;
+    defined $name or croak arity_miss
+    return $items{$name} if exists $items{$name};
+    read_index;
+    my $event = $index->{items}{name} // return undef;
+    read_event($event);
+}
 
 sub have_item {
     my ($name) = @_;
