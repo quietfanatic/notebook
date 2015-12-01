@@ -5,13 +5,34 @@ use warnings;
 use bytes;  # Assume everything is UTF-8
 use JSON::MaybeXS ':all';
 use Time::HiRes;
+sub croak { require Carp; goto &Carp::croak; }
+sub clone { require Clone; goto &Clone::clone; }
+
+our @EXPORT_OK = qw(
+    null true false slurp splat
+    now now_hires iso_datetime file_datetime new_event_id
+    criticize criticize_die
+    blank_item
+    READ WRITE transaction item event item_event item_event_previous
+    all_names all_items validate_everything
+);
+sub import {
+    no strict 'refs';
+    my @args = @_;
+    shift @args;
+    if (@args == 1 and $args[0] eq ':all' || $args[0] eq ':ALL') {
+        @args = @EXPORT_OK;
+    }
+    my ($package, $file, $line) = caller;
+    for my $a (@args) {
+        grep $_ eq $a, @EXPORT_OK or croak "No export \"$a\" from palace";
+        *{$package.'::'.$a} = \&{$a};
+    }
+}
 
 sub null () { undef }
 sub true () { JSON->true }
 sub false () { JSON->false }
-
-sub croak { require Carp; goto &Carp::croak; }
-sub clone { require Clone; goto &Clone::clone; }
 
  # Overridden for testing
 our $datadir = 'data';
@@ -413,8 +434,8 @@ sub event {
     @_ == 1 or croak arity_miss 0+@_, 1;
     defined $id or croak "ID passed to event() as parameter is undefined.";
     defined $transaction or croak "event() called outside of a transaction.";
-    if (!exists $events{$events{$id}}) {
-        my $event = decode_json slurp "$datadir/events/$id";
+    if (!exists $events{$id}) {
+        my $event = decode_json slurp "$datadir/events/$id.json";
         criticize_die $event, $event_schema, "Internal error: event $id had invalid data.";
         $events{$id} = $event;
     }
