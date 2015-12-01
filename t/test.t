@@ -4,6 +4,7 @@ use warnings;
 no warnings 'once';
 use Test::More;
 use File::Path;
+use JSON::MaybeXS ':all';
 require 'palace';
 
 sub lives {
@@ -87,12 +88,70 @@ my $event = {
 is_deeply [palace::criticize($event, $palace::event_schema)], [], 'valid event passes criticism';
 
 
-note 'Backend';
-File::Path::remove_tree("t/test-data");
+note 'Backend internal';
 my $res;
 lives sub { $res = palace::process_changes($item, undef); }, 'process_changes lives with item and null';
 ok $res, 'process_changes returned true with item and null';
 is $item->{auto}{changed_at}, '1970-01-01T00:00:05Z', 'process_changes set changed_at';
 is $item->{auto}{created_at}, '1970-01-01T00:00:05Z', 'process_changes set created_at';
+
+note 'Backend';
+File::Path::remove_tree("t/test-data");
+lives sub {
+    palace::transaction(palace::READ(), sub {});
+}, 'empty READ transaction lives';
+is_deeply [glob('t/test-data/events/*')],
+          ['t/test-data/events/1970-01-01_00-00-07_123456.json'],
+          'READ transaction wrote an event file';
+my $read_event = {
+    id => '1970-01-01_00-00-07_123456',
+    source => { interface => 'unknown' },
+    request => undef,
+    response => undef,
+    started_at => '1970-01-01T00:00:06Z',
+    finished_at => '1970-01-01T00:00:08Z',
+};
+is_deeply decode_json(palace::slurp('t/test-data/events/1970-01-01_00-00-07_123456.json')),
+          $read_event,
+          'Event written by READ transaction is correct';
+lives sub {
+    palace::transaction(palace::WRITE(), sub {
+        palace::item('foo') = palace::blank_item('foo');
+    });
+}, 'basic WRITE transaction works';
+is_deeply [sort(glob('t/test-data/events/*'))],
+          ['t/test-data/events/1970-01-01_00-00-07_123456.json', 't/test-data/events/1970-01-01_00-00-10_123456.json'],
+          'WRITE transaction wrote an event file';
+my $write_event = {
+    id => '1970-01-01_00-00-10_123456',
+    source => { interface => 'unknown' },
+    request => undef,
+    response => undef,
+    started_at => '1970-01-01T00:00:09Z',
+    finished_at => '1970-01-01T00:00:12Z',
+    changes => {
+        foo => {
+            previous => undef,
+            item => {
+                name => 'foo',
+                tags => [],
+                contents => [],
+                auto => {
+                    tagged => [],
+                    created_at => '1970-01-01T00:00:11Z',
+                    changed_at => '1970-01-01T00:00:11Z',
+                },
+            },
+        },
+    },
+};
+is_deeply decode_json(palace::slurp('t/test-data/events/1970-01-01_00-00-10_123456.json')),
+          $write_event,
+          'Event written by WRITE transaction is correct';
+ok -e 't/test-data/index.json', 'WRITE transaction wrote index.json';
+is_deeply decode_json(palace::slurp('t/test-data/index.json')), {
+    changed_at => '1970-01-01T00:00:12Z',
+    items => { foo => '1970-01-01_00-00-10_123456' },
+}, 'Index written by WRITE transaction is correct';
 
 done_testing;

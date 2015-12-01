@@ -251,16 +251,19 @@ sub process_changes {
         }
          # TODO: delete
     }
-    criticize_die $new, $item_schema, "Changed item $new->{name} did not pass validation.";
     if (defined $old) {
         $new->{auto} = $old->{auto};
         return 0 if deep_equals($new, $old);
         $new->{auto}{changed_at} = iso_datetime(gmtime(now));
+        criticize_die $new, $item_schema, "Changed item $new->{name} did not pass validation.";
          # TODO: link tags
     }
     else {
         $new->{auto}{changed_at} =
         $new->{auto}{created_at} = iso_datetime(gmtime(now));
+         # TODO: link tags
+        $new->{auto}{tagged} = [];
+        criticize_die $new, $item_schema, "Created item $new->{name} did not pass validation.";
     }
     return 1;
 }
@@ -325,7 +328,7 @@ sub transaction {
         }
         else {
             $index = {
-                latest_event => null,
+                changed_at => '',
                 items => {},
             };
         }
@@ -338,7 +341,10 @@ sub transaction {
          # Do the actual code
         @r = $proc->();
          # Finish event structure
-        $event->{id} = new_event_id() until !-e "$datadir/events/$event->{id}.json";
+        $event->{id} = new_event_id();
+        until (!-e "$datadir/events/$event->{id}.json") {
+            $event->{id} = new_event_id();
+        }
         my $event_filename = "$datadir/events/$event->{id}.json";
         open my $EVENT, '>', $event_filename or die "Could not open $event_filename for writing: $!";
         chmod 0440, $EVENT or die "Could not chmod event: $!\n";
@@ -349,8 +355,10 @@ sub transaction {
                 if ($write_items{$_}{name} ne $_) {
                     die "Changing name of item is NYI, sorry.\n";
                 }
-                my $old_event = $events{$index->{items}{$_}};
-                if (process_changes($write_items{$_}, $old_event->{changes}{$_}{item})) {
+                my $old_event = exists $index->{items}{$_}
+                              ? event($index->{items}{$_})
+                              : undef;
+                if (process_changes($write_items{$_}, defined $old_event ? $old_event->{changes}{$_}{item} : undef)) {
                     $changed = 1;
                     $event->{changes}{$_} = {
                         previous => defined $old_event ? $old_event->{id} : null,
@@ -360,18 +368,24 @@ sub transaction {
                 }
             }
             $event->{finished_at} = iso_datetime(gmtime(now));
-            criticize_die $event, $event_schema, "Internal error: tried to write invalid event!";
             if ($changed) {
-                $index->{updated_at} = $event->{finished_at};
+                $index->{changed_at} = $event->{finished_at};
                 criticize_die $index, $index_schema, "Internal error: tried to write invalid index!";
             }
+            criticize_die $event, $event_schema, "Internal error: tried to write invalid event!";
              # Commit event
-            print $EVENT encode_json $event;
+            print $EVENT encode_json($event) or die "Could not write to $event_filename: $!\n";
             close $EVENT or die "Could not close $event_filename: $!\n";
              # Commit index
             if ($changed) {
                 splat "$datadir/index.json", encode_json($index);
             }
+        }
+        else {
+             # Just commit event
+            $event->{finished_at} = iso_datetime(gmtime(now));
+            print $EVENT encode_json($event) or die "Could not write to $event_filename: $!\n";
+            close $EVENT or die "Could not close $event_filename: $!\n";
         }
     };
     my $mess = $@;
@@ -430,7 +444,7 @@ sub item_event_previous {
 
  # Inside a transaction, returns a readable or read-writable item.
  # Returns undef if the item doesn't exist or is deleted.
-sub item {
+sub item : lvalue {
     my ($name) = @_;
     @_ == 1 or croak arity_miss 0+@_, 1;
     defined $name or croak "Name passed to item() as parameter is undefined.";
