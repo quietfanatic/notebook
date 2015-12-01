@@ -10,7 +10,7 @@ sub clone { require Clone; goto &Clone::clone; }
 
 our @EXPORT_OK = qw(
     null true false slurp splat
-    now now_hires iso_datetime file_datetime new_event_id
+    now now_hires timestamp
     criticize criticize_die
     blank_item
     READ WRITE transaction item event item_event item_event_previous
@@ -76,17 +76,17 @@ sub mkdirs {
 
 sub now { defined $test_time ? $test_time++ : time }
 sub now_hires { defined $test_time ? ($test_time++, 123456) : Time::HiRes::gettimeofday() }
-sub iso_datetime {
-    return sprintf '%04d-%02d-%02dT%02d:%02d:%02dZ',
-        $_[5]+1900, $_[4]+01, $_[3], $_[2], $_[1], $_[0];
-}
-sub file_datetime {
-    return sprintf '%04d-%02d-%02d_%02d-%02d-%02d',
-        $_[5]+1900, $_[4]+01, $_[3], $_[2], $_[1], $_[0];
-}
-sub new_event_id {
-    my ($s, $us) = now_hires;
-    return sprintf '%s_%06d', file_datetime(gmtime($s)), $us;
+sub timestamp {
+    my ($s, $us) = @_ > 0 ? @_ : now_hires();
+    my @t = gmtime($s);
+    if (defined $us) {
+        return sprintf '%04d-%02d-%02d_%02d-%02d-%02d_%06d',
+            $t[5]+1900, $t[4]+01, $t[3], $t[2], $t[1], $t[0], $us;
+    }
+    else {
+        return sprintf '%04d-%02d-%02d_%02d-%02d-%02d',
+            $t[5]+1900, $t[4]+01, $t[3], $t[2], $t[1], $t[0];
+    }
 }
 
 
@@ -161,11 +161,10 @@ sub criticize {
         }
         return @errs;
     }
-    elsif ($schema =~ /datetime/) {
-        ref $obj eq '' or return "Value at $path is not a string, let alone a date";
-         # Only taking UTC dates
-        $obj =~ /^\d\d\d\d-\d\d-\d\dT\d\d:\d\d:\d\dZ$/
-            or return "Value at $path does not look like a date";
+    elsif ($schema =~ /timestamp/) {
+        ref $obj eq '' or return "Value at $path is not a string, let alone a timestamp";
+        $obj =~ /^\d\d\d\d-\d\d-\d\d_\d\d-\d\d-\d\d_\d\d\d\d\d\d$/
+            or return "Value at $path does not look like a timestamp";
         return ();
     }
     elsif ($schema =~ /uri/) {
@@ -213,14 +212,14 @@ our $item_schema = {
     title => 'string',
     origin => {
         uri => 'uri!',
-        originated_at => 'datetime',
+        originated_at => 'timestamp',
     },
     misc => { '*' => '*?' },
      # Things not manually writable (changes will be reverted)
     auto => {
         '!' => true,
-        created_at => 'datetime!',
-        changed_at => 'datetime!',  # Only tracks manual changes (nothing in auto)
+        created_at => 'timestamp!',
+        changed_at => 'timestamp!',  # Only tracks manual changes (nothing in auto)
         tagged => ['name', '!'],
     },
 };
@@ -275,13 +274,13 @@ sub process_changes {
     if (defined $old) {
         $new->{auto} = $old->{auto};
         return 0 if deep_equals($new, $old);
-        $new->{auto}{changed_at} = iso_datetime(gmtime(now));
+        $new->{auto}{changed_at} = timestamp;
         criticize_die $new, $item_schema, "Changed item $new->{name} did not pass validation.";
          # TODO: link tags
     }
     else {
         $new->{auto}{changed_at} =
-        $new->{auto}{created_at} = iso_datetime(gmtime(now));
+        $new->{auto}{created_at} = timestamp;
          # TODO: link tags
         $new->{auto}{tagged} = [];
         criticize_die $new, $item_schema, "Created item $new->{name} did not pass validation.";
@@ -294,8 +293,8 @@ sub process_changes {
 
 our $event_schema = {
     id => 'string!',
-    started_at => 'datetime!',
-    finished_at => 'datetime!',
+    started_at => 'timestamp!',
+    finished_at => 'timestamp!',
     source => {
         '!' => true,
         interface => 'string!',
@@ -310,7 +309,7 @@ our $event_schema = {
 };
  # Ad-hoc, doesn't conform to any standardized schema schema.
 our $index_schema = {
-    changed_at => 'datetime!',  # When this file specifically was last changed
+    changed_at => 'timestamp!',  # When this file specifically was last changed
     items => { '!' => true, '*' => 'string' },
 };
 
@@ -354,7 +353,7 @@ sub transaction {
             };
         }
         my $event = {
-            started_at => iso_datetime(gmtime(now)),
+            started_at => timestamp,
             source => { interface => 'unknown' },  # TODO: read %ENV
             request => null,
             response => null,
@@ -362,9 +361,9 @@ sub transaction {
          # Do the actual code
         @r = $proc->();
          # Finish event structure
-        $event->{id} = new_event_id();
+        $event->{id} = timestamp;
         until (!-e "$datadir/events/$event->{id}.json") {
-            $event->{id} = new_event_id();
+            $event->{id} = timestamp;
         }
         my $event_filename = "$datadir/events/$event->{id}.json";
         open my $EVENT, '>', $event_filename or die "Could not open $event_filename for writing: $!";
@@ -388,7 +387,7 @@ sub transaction {
                     $index->{items}{$_} = $event->{id};
                 }
             }
-            $event->{finished_at} = iso_datetime(gmtime(now));
+            $event->{finished_at} = timestamp;
             if ($changed) {
                 $index->{changed_at} = $event->{finished_at};
                 criticize_die $index, $index_schema, "Internal error: tried to write invalid index!";
@@ -404,7 +403,7 @@ sub transaction {
         }
         else {
              # Just commit event
-            $event->{finished_at} = iso_datetime(gmtime(now));
+            $event->{finished_at} = timestamp;
             print $EVENT encode_json($event) or die "Could not write to $event_filename: $!\n";
             close $EVENT or die "Could not close $event_filename: $!\n";
         }
