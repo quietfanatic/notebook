@@ -17,6 +17,7 @@ sub clone { require Clone; goto &Clone::clone; }
 our $datadir = 'data';
 our $test_time;
 
+
 ##### Misc utilities
 sub arity_miss {
     my ($got, $wanted) = @_;
@@ -67,47 +68,8 @@ sub new_event_id {
     return sprintf '%s_%06d', file_datetime(gmtime($s)), $us;
 }
 
-##### Validation
 
- # Ad-hoc, doesn't conform to any standardized schema schema.
-our $index_schema = {
-    changed_at => 'datetime!',  # When this file specifically was last changed
-    items => { '!' => true, '*' => 'string' },
-};
-our $item_schema = {
-    '?' => true,  # Deleted if null
-    name => 'name!',
-    title => 'string',
-    origin => {
-        uri => 'uri!',
-        originated_at => 'datetime',
-    },
-    tags => ['name', '!'],
-    contents => ['string', '!'],
-    misc => { '*' => '*?' },  # Or perhaps this should be toplevel
-    auto => {  # Things not manually writable (changes will be reverted)
-        '!' => true,
-        created_at => 'datetime!',
-        changed_at => 'datetime!',  # Only tracks manual changes (nothing in auto)
-        tagged => ['name', '!'],
-    },
-};
-our $event_schema = {
-    id => 'string!',
-    started_at => 'datetime!',
-    finished_at => 'datetime!',
-    source => {
-        '!' => true,
-        interface => 'string!',
-        '*' => '*?',
-    },
-    request => '*?!',
-    response => '*?!',
-    changes => { '*' => {
-        previous => 'string?!',
-        item => $item_schema,
-    }},
-};
+##### Validation
 
 sub schema_char {
     my ($schema, $char) = @_;
@@ -218,7 +180,113 @@ sub criticize_die {
 }
 
 
+##### Items
+
+our $item_schema = {
+    '?' => true,  # Deleted if null
+    name => 'name!',
+     # Mandatory
+    tags => ['name', '!'],
+    contents => ['string', '!'],
+     # Optional
+    title => 'string',
+    origin => {
+        uri => 'uri!',
+        originated_at => 'datetime',
+    },
+    misc => { '*' => '*?' },
+     # Things not manually writable (changes will be reverted)
+    auto => {
+        '!' => true,
+        created_at => 'datetime!',
+        changed_at => 'datetime!',  # Only tracks manual changes (nothing in auto)
+        tagged => ['name', '!'],
+    },
+};
+
+sub blank_item {
+    my ($name) = @_;
+    @_ == 1 or croak arity_miss 0+@_, 1;
+    defined $name or croak "Name given to blank_item is undefined.";
+    return {
+        name => $name,
+        tags => [],
+        contents => [],
+    };
+};
+
+sub deep_equals {
+    my ($a, $b) = @_;
+    ref $a ne ref $b and return 0;
+    if (ref $a eq 'HASH') {
+        for (keys %$a) {
+            return 0 unless exists $b->{$_};
+        }
+        for (keys %$b) {
+            return 0 unless exists $a->{$_};
+            return 0 unless exists $a->{$_} and deep_equals($a->{$_}, $b->{$_});
+        }
+        return 1;
+    }
+    elsif (ref $a eq 'ARRAY') {
+        return 0 unless @$a == @$b;
+        for (0..$#$a) {
+            return 0 unless deep_equals($a->[$_], $b->[$_]);
+        }
+        return 1;
+    }
+    elsif (defined $a) {
+        return defined $b && $a eq $b;
+    }
+    else {
+        return !defined $b;
+    }
+}
+
+sub process_changes {
+    my ($new, $old) = @_;
+    if (!defined $new) {
+        if (!defined $old) {
+            return 0;
+        }
+         # TODO: delete
+    }
+    delete $new->{auto};
+    criticize_die $new, $item_schema, "Changed item $new->{name} did not pass validation.";
+    $new->{auto} = $old->{auto};
+    return 0 if deep_equals($new, $old);
+     # TODO: link tags
+    $new->{auto}{changed_at} = iso_datetime(gmtime(now));
+    if (!defined $old) {
+        $new->{auto}{created_at} = $new->{auto}{changed_at};
+    }
+    return 1;
+}
+
+
 ##### Backend
+
+our $event_schema = {
+    id => 'string!',
+    started_at => 'datetime!',
+    finished_at => 'datetime!',
+    source => {
+        '!' => true,
+        interface => 'string!',
+        '*' => '*?',
+    },
+    request => '*?!',
+    response => '*?!',
+    changes => { '*' => {
+        previous => 'string?!',
+        item => $item_schema,
+    }},
+};
+ # Ad-hoc, doesn't conform to any standardized schema schema.
+our $index_schema = {
+    changed_at => 'datetime!',  # When this file specifically was last changed
+    items => { '!' => true, '*' => 'string' },
+};
 
  # Current state, loaded if necessary
 my $index;
@@ -280,7 +348,6 @@ sub transaction {
                     die "Changing name of item is NYI, sorry.\n";
                 }
                 my $old_event = $events{$index->{items}{$_}};
-                criticize_die $write_items{$_}, $item_schema, "Written item $_ did not pass validation.";
                 if (process_changes($write_items{$_}, $old_event->{changes}{$_}{item})) {
                     $changed = 1;
                     $event->{changes}{$_} = {
