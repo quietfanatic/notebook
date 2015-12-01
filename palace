@@ -251,10 +251,11 @@ sub process_changes {
         }
          # TODO: delete
     }
-    delete $new->{auto};
     criticize_die $new, $item_schema, "Changed item $new->{name} did not pass validation.";
-    $new->{auto} = $old->{auto};
-    return 0 if deep_equals($new, $old);
+    if (defined $old) {
+        $new->{auto} = $old->{auto};
+        return 0 if deep_equals($new, $old);
+    }
      # TODO: link tags
     $new->{auto}{changed_at} = iso_datetime(gmtime(now));
     if (!defined $old) {

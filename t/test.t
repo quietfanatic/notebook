@@ -89,5 +89,10 @@ is_deeply [palace::criticize($event, $palace::event_schema)], [], 'valid event p
 
 note 'Backend';
 File::Path::remove_tree("t/test-data");
+my $res;
+lives sub { $res = palace::process_changes($item, undef); }, 'process_changes lives with item and null';
+ok $res, 'process_changes returned true with item and null';
+is $item->{auto}{changed_at}, '1970-01-01T00:00:05Z', 'process_changes set changed_at';
+is $item->{auto}{created_at}, '1970-01-01T00:00:05Z', 'process_changes set created_at';
 
 done_testing;
