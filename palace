@@ -255,11 +255,12 @@ sub process_changes {
     if (defined $old) {
         $new->{auto} = $old->{auto};
         return 0 if deep_equals($new, $old);
+        $new->{auto}{changed_at} = iso_datetime(gmtime(now));
+         # TODO: link tags
     }
-     # TODO: link tags
-    $new->{auto}{changed_at} = iso_datetime(gmtime(now));
-    if (!defined $old) {
-        $new->{auto}{created_at} = $new->{auto}{changed_at};
+    else {
+        $new->{auto}{changed_at} =
+        $new->{auto}{created_at} = iso_datetime(gmtime(now));
     }
     return 1;
 }
