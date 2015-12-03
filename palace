@@ -204,23 +204,37 @@ sub criticize_die {
 
 our $item_schema = {
     '?' => true,  # Deleted if null
-    name => 'name!',
-     # Mandatory
-    tags => ['name', '!'],
-    contents => ['string', '!'],
-     # Optional
+    id => 'id!',
     title => 'string',
+    content => {
+        interpretation => 'string',
+        body => 'string!',
+    },
     origin => {
         uri => 'uri!',
         originated_at => 'timestamp',
+        authorization => 'string',
     },
-    misc => { '*' => '*?' },
+    links => [{
+        rel => 'id!',
+        name => 'id!',
+    }],
+    contributor => {
+         # Contributor's id will be in links
+        name => 'string',
+        uri => 'string',
+        email => 'string',  # We might never use these things
+        notify_approval => 'bool',
+        notify_reply => 'bool',
+    },
+    privacy => 'integer',
+    attributes => { '*' => '*?' },
      # Things not manually writable (changes will be reverted)
     auto => {
         '!' => true,
         created_at => 'timestamp!',
         changed_at => 'timestamp!',  # Only tracks manual changes (nothing in auto)
-        tagged => ['name', '!'],
+        linked => ['name', '!'],
     },
 };
 
@@ -304,7 +318,7 @@ our $event_schema = {
     response => '*?!',
     changes => { '*' => {
         previous => 'string?!',
-        item => $item_schema,
+        item => '*?',  # Validated separately
     }},
 };
  # Ad-hoc, doesn't conform to any standardized schema schema.
