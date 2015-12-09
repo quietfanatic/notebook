@@ -36,16 +36,38 @@ is timestamp(), '1970-01-01_00-00-04_123456', 'timestamp() seems to work';
 
 note 'Criticize';
 my $item = {
-    name => 'whatever',
-    origin => {
-        uri => 'http://example.com/whatever',
-    },
-    tags => ['a', 'b'],
-    contents => ['this is a thing', 'haha I\'m typing words'],
+    path => 'whatever',
+    title => 'The Great Whatever',
+    links => [{
+        rel => 'next',
+        path => 'whatever2',
+    },{
+        rel => 'tag',
+        path => 'tag/whatever',
+    },{
+        rel => 'credit',
+        credit => 0,
+        path => 'user/foo',
+    }],
+    contents => [{
+        rel => 'description',
+        text => 'this is a thing',
+    },{
+        rel => 'whatever',
+        html => '<b>groovy!</b>',
+        origin => 'http://example.com/groovy',
+    }],
+    credits => [{
+        name => 'Tester',
+        uri => 'http://example.com',
+        email => 'example@example.com',
+    }],
+    uploader => 0,
+    access => { public => true, visible => true },
     auto => {
         created_at => '1970-01-01_00-00-00_123456',
         changed_at => '1970-01-01_00-00-00_123456',
-        tagged => ['thing1', 'thing2'],
+        linked => ['thing1', 'thing2'],
     },
     misc => {
         anything => 'goes',
@@ -56,9 +78,9 @@ is_deeply [criticize($item, $palace::item_schema)], [], 'various properties are 
 $item->{nothing} = 'foo';
 is_deeply [criticize($item, $palace::item_schema)], ['Unallowed property nothing at TOP'], 'criticize rejects unallowed properties';
 delete $item->{nothing};
-delete $item->{name};
-is_deeply [criticize($item, $palace::item_schema)], ['Missing required property name at TOP'], 'criticize requires required properties';
-$item->{name} = 'foo';
+delete $item->{path};
+is_deeply [criticize($item, $palace::item_schema)], ['Missing required property path at TOP'], 'criticize requires required properties';
+$item->{path} = 'foo';
 my $index = {
     changed_at => '1970-01-01_00-00-00_123456',
     items => {
@@ -126,11 +148,9 @@ is_deeply [sort(glob('t/test-data/events/*'))],
           ['t/test-data/events/1970-01-01_00-00-07_123456.json', 't/test-data/events/1970-01-01_00-00-10_123456.json'],
           'WRITE transaction wrote an event file';
 my $write_item = {
-    name => 'foo',
-    tags => [],
-    contents => [],
+    path => 'foo',
     auto => {
-        tagged => [],
+        linked => [],
         created_at => '1970-01-01_00-00-11_123456',
         changed_at => '1970-01-01_00-00-11_123456',
     },
