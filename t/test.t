@@ -5,10 +5,8 @@ no warnings 'once';
 use Test::More;
 use File::Path;
 use JSON::MaybeXS ':all';
-BEGIN {
-    require 'palace';
-    palace->import(':all');
-}
+use lib '.';
+use backend::filesystem ':all';
 
 sub lives {
     eval { $_[0]() };
@@ -24,8 +22,8 @@ sub dies {
     }
 }
 
-$palace::datadir = 't/test-data';
-$palace::test_time = 0;
+$backend::filesystem::datadir = 't/test-data';
+$backend::filesystem::test_time = 0;
 
 note 'Datetimes';
 is now(), 0, 'now seems to work';
@@ -74,15 +72,15 @@ my $item = {
         extra => [qw(a b c d e)],
     },
 };
-is_deeply [criticize($item, $palace::item_schema)], [], 'various properties are valid';
+is_deeply [criticize($item, item_schema)], [], 'various properties are valid';
 $item->{nothing} = 'foo';
-is_deeply [criticize($item, $palace::item_schema)], ['Unallowed property nothing at TOP'], 'criticize rejects unallowed properties';
+is_deeply [criticize($item, item_schema)], ['Unallowed property nothing at TOP'], 'criticize rejects unallowed properties';
 delete $item->{nothing};
 delete $item->{path};
-is_deeply [criticize($item, $palace::item_schema)], ['Missing required property path at TOP'], 'criticize requires required properties';
+is_deeply [criticize($item, item_schema)], ['Missing required property path at TOP'], 'criticize requires required properties';
 $item->{path} = 'foo';
 $item->{uploader} = 1;
-is_deeply [criticize($item, $palace::item_schema)], ['Value at TOP.uploader is out of range for credits array'], 'criticize uses embedded criticism function';
+is_deeply [criticize($item, item_schema)], ['Value at TOP.uploader is out of range for credits array'], 'criticize uses embedded criticism function';
 $item->{uploader} = 0;
 my $index = {
     changed_at => '1970-01-01_00-00-00_123456',
@@ -91,7 +89,7 @@ my $index = {
         bar => '2134-11-21_21-52-10_010002',
     },
 };
-is_deeply [criticize($index, $palace::index_schema)], [], 'valid index passes criticism';
+is_deeply [criticize($index, index_schema)], [], 'valid index passes criticism';
 my $event = {
     id => '1970-01-01_00-00-00_435789',
     started_at => '1970-01-01_00-00-00_123456',
@@ -113,12 +111,12 @@ my $event = {
         }
     },
 };
-is_deeply [criticize($event, $palace::event_schema)], [], 'valid event passes criticism';
+is_deeply [criticize($event, event_schema)], [], 'valid event passes criticism';
 
 
 note 'Backend internal';
 my $res;
-lives sub { $res = palace::process_changes($item, undef); }, 'process_changes lives with item and null';
+lives sub { $res = backend::filesystem::process_changes($item, undef); }, 'process_changes lives with item and null';
 ok $res, 'process_changes returned true with item and null';
 is $item->{auto}{changed_at}, '1970-01-01_00-00-05_123456', 'process_changes set changed_at';
 is $item->{auto}{created_at}, '1970-01-01_00-00-05_123456', 'process_changes set created_at';
@@ -126,7 +124,7 @@ is $item->{auto}{created_at}, '1970-01-01_00-00-05_123456', 'process_changes set
 note 'Backend';
 File::Path::remove_tree("t/test-data");
 lives sub {
-    transaction(palace::READ(), sub {});
+    transaction(READ, sub {});
 }, 'empty READ transaction lives';
 is_deeply [glob('t/test-data/events/*')],
           ['t/test-data/events/1970-01-01_00-00-07_123456.json'],

@@ -1,5 +1,5 @@
 #!/usr/bin/perl
-package palace;
+package backend::filesystem;
 use v5.18;
 use warnings;
 use bytes;  # Assume everything is UTF-8
@@ -12,7 +12,7 @@ our @EXPORT_OK = qw(
     null true false slurp splat
     now now_hires timestamp
     criticize criticize_die
-    blank_item
+    item_schema blank_item event_schema index_schema
     READ WRITE transaction item event item_event item_event_previous
     all_names all_items validate_everything
 );
@@ -281,6 +281,7 @@ our $item_schema = {
         return @errs;
     },
 };
+sub item_schema () { $item_schema }
 
 sub blank_item {
     my ($path) = @_;
@@ -363,11 +364,13 @@ our $event_schema = {
         item => '*?',  # Validated separately
     }},
 };
+sub event_schema () { return $event_schema }
  # Ad-hoc, doesn't conform to any standardized schema schema.
 our $index_schema = {
     changed_at => 'timestamp!',  # When this file specifically was last changed
     items => { '!' => true, '*' => 'string' },
 };
+sub index_schema () { return $index_schema }
 
  # Current state, loaded if necessary
 my $index;
