@@ -101,97 +101,104 @@ sub schema_char {
 
  # Returns list of strings.
 sub criticize {
-    my ($obj, $schema, $path) = @_;
+    my ($obj, $schema, $loc) = @_;
     @_ < 2 and croak arity_miss 0+@_, 2;
-    @_ < 3 and $path = 'TOP' if @_ < 3;
+    @_ < 3 and $loc = 'TOP' if @_ < 3;
     @_ > 3 and croak arity_miss 0+@_, 3;
     if (!defined $schema) {
-        return "Schema itself is broken at $path";
+        return "Schema itself is broken at $loc";
     }
     elsif (!defined $obj) {
-        schema_char($schema, '?') or return "Value at $path should not be null";
+        schema_char($schema, '?') or return "Value at $loc should not be null";
         return ();
     }
     elsif (ref $schema eq 'HASH') {
-        ref $obj eq 'HASH' or return "Value at $path is not an object";
+        ref $obj eq 'HASH' or return "Value at $loc is not an object";
         my @errs;
         for (grep schema_char($schema->{$_}, '!'), keys %$schema) {
+            next if /^[!?*&]$/;
             if (!exists $obj->{$_}) {
-                push @errs, "Missing required property $_ at $path";
+                push @errs, "Missing required property $_ at $loc";
             }
         }
         for (keys %$obj) {
             if (exists $schema->{$_}) {
-                push @errs, criticize($obj->{$_}, $schema->{$_}, "$path.$_");
+                if (/^[!?*&]$/) {
+                    push @errs, "Invalid property name $_ at $loc";
+                }
+                push @errs, criticize($obj->{$_}, $schema->{$_}, "$loc.$_");
             }
             elsif (exists $schema->{'*'}) {
-                push @errs, criticize($obj->{$_}, $schema->{'*'}, "$path.$_");
+                push @errs, criticize($obj->{$_}, $schema->{'*'}, "$loc.$_");
             }
             else {
-                push @errs, "Unallowed property $_ at $path";
+                push @errs, "Unallowed property $_ at $loc";
             }
+        }
+        if (exists $schema->{'&'}) {
+            push @errs, $schema->{'&'}($obj, $loc);
         }
         return @errs;
     }
     elsif (ref $schema eq 'ARRAY') {
-        ref $obj eq 'ARRAY' or return "Value at $path is not an array";
+        ref $obj eq 'ARRAY' or return "Value at $loc is not an array";
         my @errs;
         for (0..$#$obj) {
-            push @errs, criticize($obj->[$_], $schema->[0], "$path\[$_]");
+            push @errs, criticize($obj->[$_], $schema->[0], "$loc\[$_]");
         }
         return @errs;
     }
     elsif ($schema =~ /path/) {
-        ref $obj eq '' or return "Value at $path is not a string, let alone a path";
+        ref $obj eq '' or return "Value at $loc is not a string, let alone a path";
         my @errs;
         if ($obj eq '') {
-            push @errs, "Value at $path is too empty to be a path";
+            push @errs, "Value at $loc is too empty to be a path";
         }
         if (length $obj > 200) {
-            push @errs, "Value at $path is too long in bytes to be a path (".length($obj)." > 200)";
+            push @errs, "Value at $loc is too long in bytes to be a path (".length($obj)." > 200)";
         }
         if ($obj =~ /^\s/) {
-            push @errs, "Value at $path has leading whitespace, and so cannot be a path";
+            push @errs, "Value at $loc has leading whitespace, and so cannot be a path";
         }
         if ($obj =~ /\s$/) {
-            push @errs, "Value at $path has trailing whitespace, and so cannot be a path";
+            push @errs, "Value at $loc has trailing whitespace, and so cannot be a path";
         }
         if ($obj =~ /[\x00-\x1f\x7f]/) {
-            push @errs, "Value at $path contains unprintable characters not allowed in a path";
+            push @errs, "Value at $loc contains unprintable characters not allowed in a path";
         }
         return @errs;
     }
     elsif ($schema =~ /timestamp/) {
-        ref $obj eq '' or return "Value at $path is not a string, let alone a timestamp";
+        ref $obj eq '' or return "Value at $loc is not a string, let alone a timestamp";
         $obj =~ /^\d\d\d\d-\d\d-\d\d_\d\d-\d\d-\d\d_\d\d\d\d\d\d$/
-            or return "Value at $path does not look like a timestamp";
+            or return "Value at $loc does not look like a timestamp";
         return ();
     }
     elsif ($schema =~ /uri/) {
-        ref $obj eq '' or return "Value at $path is not a string, let along a uri";
-        $obj =~ /^[a-z]+:\/\// or return "Value at $path does not look like a uri";
+        ref $obj eq '' or return "Value at $loc is not a string, let along a uri";
+        $obj =~ /^[a-z]+:\/\// or return "Value at $loc does not look like a uri";
         return ();
     }
     elsif ($schema =~ /string/) {
-        ref $obj eq '' or return "Value at $path is not a string";
+        ref $obj eq '' or return "Value at $loc is not a string";
          # Not caring about numbers
         return ();
     }
     elsif ($schema =~ /integer/) {
-        ref $obj eq '' or return "Value at $path is not a scalar, let alone an integer";
-        is_bool($obj) and return "Value at $path is a boolean, not an integer";
-        $obj =~ /^\d+$/ or return "Value at $path is not an integer";
+        ref $obj eq '' or return "Value at $loc is not a scalar, let alone an integer";
+        is_bool($obj) and return "Value at $loc is a boolean, not an integer";
+        $obj =~ /^\d+$/ or return "Value at $loc is not an integer";
         return ();
     }
     elsif ($schema =~ /bool/) {
-        is_bool($obj) or return "Value at $path is not a boolean";
+        is_bool($obj) or return "Value at $loc is not a boolean";
         return ();
     }
     elsif ($schema =~ /\*/) {
         return ();  # Anything goes
     }
     else {
-        return "Schema itself is broken at $path";
+        return "Schema itself is broken at $loc";
     }
 }
 sub criticize_die {
@@ -247,6 +254,31 @@ our $item_schema = {
         created_at => 'timestamp!',
         changed_at => 'timestamp!',  # Only tracks manual changes (nothing in auto)
         linked => ['path', '!'],
+    },
+    '&' => sub {
+        my @errs;
+        if (exists $_[0]{uploader}) {
+            push @errs, "Value at TOP.uploader is out of range for credits array"
+                if $_[0]{uploader} < 0
+                || $_[0]{uploader} >= @{$_[0]{credits}};
+        }
+        if (exists $_[0]{links}) {
+            for (0..$#{$_[0]{links}}) {
+                exists $_[0]{links}[$_]{credit} or next;
+                push @errs, "Value at links[$_].credit is out of range for credits array"
+                    if $_[0]{links}[$_]{credit} < 0
+                    || $_[0]{links}[$_]{credit} >= @{$_[0]{credits}};
+            }
+        }
+        if (exists $_[0]{contents}) {
+            for (0..$#{$_[0]{contents}}) {
+                exists $_[0]{contents}[$_]{credit} or next;
+                push @errs, "Value at contents[$_].credit is out of range for credits array"
+                    if $_[0]{contents}[$_]{credit} < 0
+                    || $_[0]{contents}[$_]{credit} >= @{$_[0]{credits}};
+            }
+        }
+        return @errs;
     },
 };
 

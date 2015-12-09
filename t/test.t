@@ -81,6 +81,9 @@ delete $item->{nothing};
 delete $item->{path};
 is_deeply [criticize($item, $palace::item_schema)], ['Missing required property path at TOP'], 'criticize requires required properties';
 $item->{path} = 'foo';
+$item->{uploader} = 1;
+is_deeply [criticize($item, $palace::item_schema)], ['Value at TOP.uploader is out of range for credits array'], 'criticize uses embedded criticism function';
+$item->{uploader} = 0;
 my $index = {
     changed_at => '1970-01-01_00-00-00_123456',
     items => {
