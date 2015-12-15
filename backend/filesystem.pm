@@ -417,6 +417,11 @@ sub transaction {
             request => null,
             response => null,
         };
+        for (qw(REMOTE_ADDR REMOTE_PORT HTTP_USER_AGENT HTTP_REFERER HTTP_COOKIE USER SSH_CONNECTION)) {
+            if (exists $ENV{$_}) {
+                $event->{source}{$_} = $ENV{$_};
+            }
+        }
          # Do the actual code
         @r = $proc->();
          # Finish event structure

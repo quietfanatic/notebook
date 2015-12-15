@@ -24,6 +24,8 @@ sub dies {
 
 $backend::filesystem::datadir = 't/test-data';
 $backend::filesystem::test_time = 0;
+$ENV{USER} = 'foo';
+delete $ENV{SSH_CONNECTION};
 
 note 'Datetimes';
 is now(), 0, 'now seems to work';
@@ -131,7 +133,7 @@ is_deeply [glob('t/test-data/events/*')],
           'READ transaction wrote an event file';
 my $read_event = {
     id => '1970-01-01_00-00-07_123456',
-    source => { interface => 'unknown' },
+    source => { interface => 'unknown', USER => 'foo' },
     request => undef,
     response => undef,
     started_at => '1970-01-01_00-00-06_123456',
@@ -158,7 +160,7 @@ my $write_item = {
 };
 my $write_event = {
     id => '1970-01-01_00-00-10_123456',
-    source => { interface => 'unknown' },
+    source => { interface => 'unknown', USER => 'foo' },
     request => undef,
     response => undef,
     started_at => '1970-01-01_00-00-09_123456',
