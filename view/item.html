@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>{title}</title>
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+    <meta name="robots" content="noindex, nofollow" />
+    <base href=".." />
+    <link rel="stylesheet" href="style/deepforest.css" />
+    <script src="http://code.jquery.com/jquery-1.11.1.min.js"></script>
+    <script src="script/item.js"></script>
+</head>
+<body>
+
+<div id="nav">
+    <div><button>Save</button></div>
+    <div><label><input type="checkbox" id="show-html" onchange="show_html(&quot;{path}&quot;)"/>Show html</label></div>
+</div>
+<div id="content">
+<div class="item" id="item-{path}">
+    <div class="item-header">
+        <div class="title" contentEditable="true" />{title}</div>
+        <div class="dates" />
+            <div class="created_at" />{created_at}</div>
+            <div class="updated_at" />{updated_at}</div>
+        </div>
+    </div>
+    <div class="item-html" contentEditable="true" data-raw="false">{!html}</div>
+    <hr>
+    <table class="item-fields">
+        <tr class="item-path"><td>Path:</td><td contentEditable="true">{path}</td></tr>
+    <tr class="item-links"><td>Links:</td><td>
+{links
+        <div class="link"><span class="link-rel" contentEditable="true">{rel}</span> - <a class="link-to" contentEditable="true" href="?{to}.html">{to}</a><a href="?{to}.html">→[]</a></div>
+}        <div class="link new-link"><span class="link-rel" contentEditable="true">tag</span><span class="link-to" contentEditable="true">(new link)</span></div>
+    </td></tr>
+    <tr class="item-linked"><td>Linked:</td><td>
+{linked
+        <div class="link"><span class="link-rel">{rel}</span><a class="link-to" href="{from}.html">{from}</a></div>
+}    </td></tr></table>
+{?have_prev
+    <a class="previous-version" href="action/view?id={prev}">Previous Version</a>
+}</div>
+</body>
+</html>

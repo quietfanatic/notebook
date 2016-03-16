@@ -1,2 +1,4 @@
-/data
-/t/test-data
+/db/*.sqlite3
+*.hi
+*.o
+*.cgi
