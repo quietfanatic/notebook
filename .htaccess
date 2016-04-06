@@ -1,5 +1,6 @@
+<IfModule !rewrite>
+    Error "Apache mod_rewrite is required for this web app."
+</IfModule>
 RewriteEngine on
-RewriteBase /palace/
-RewriteCond %{REQUEST_FILENAME} !-f
-RewriteCond %{REQUEST_FILENAME} !-d
-RewriteRule . action/view.cgi
+RewriteOptions AllowNoSlash
+RewriteRule . action/page.pl
