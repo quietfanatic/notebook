@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <html><head>
-<title>{page_title}</title>
+<title>{html_title}</title>
 <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
 <meta name="robots" content="noindex, nofollow" />
 <base href="{base}" />
@@ -14,6 +14,7 @@ a:focus, a:active { outline:none; text-decoration:underline; color:#ffbf6f; }
 code, .code { font-family:"Inconsolata",monospace; }
 *[contentEditable=true] { min-height:1em; min-width:1em; }
 *[contentEditable=true]:hover { outline:1px dotted; }
+span[contentEditable=true], a[contentEditable=true] { display:inline-block; }
 .warning { font-style:italic; font-size:60%; }
  /* NAV AREA */
 .nav { position:absolute; left:0; top:0; width:7.5em; padding:0.5em; }
@@ -32,8 +33,10 @@ code, .code { font-family:"Inconsolata",monospace; }
 /* ITEM STUFF */
 .fields { font-size:80%; }
 .fields td:first-child { text-align:right; padding-right:0.2em; vertical-align:top; }
+.links
 .link-rel { display:inline-block; }
 .link-to { display:inline-block; margin-right:1em; }
+.err { outline:1px dotted red; }
 
  /* SYNTAX HIGHLIGHTING */
 .s-id { color:#55FFFF; }
@@ -51,11 +54,11 @@ code, .code { font-family:"Inconsolata",monospace; }
     <div class="nav-title">Notebook</div>
     No links here yet.
 </div>
-<div class="content item{?deleted? deleted}">
+<div class="content"{?edit? data-v="page"}>
     <div class="header">
-        <div class="title">{title}</div>
+        <div class="title"{?edit? data-v="title"}>{?has_title?{title}}{!has_title!{?edit?(untitled)}{!edit!{path}}}</div>
         <div class="corner">
-            <div class="date" />{date}</div>
+            <div class="date"{?edit? data-v="originated_at"}>{?has_originated_at?{originated_at}}{!has_originated_at!{created_at}}</div>
 {?edit?
             <div class="corner-controls">
                 <label><input type="checkbox" id="toggle_raw" onchange="toggle_raw(event)"/>HTML</label>
@@ -65,35 +68,34 @@ code, .code { font-family:"Inconsolata",monospace; }
 }
         </div>
     </div>
-    <div class="body" data-raw="false">{<html>}</div>
+    <div class="body"{?edit? data-raw="false" data-v="html"}>{?has_html?{<html>}}{!has_html!<p>No Content.</p>}</div>
     <hr />
 {?edit?
     <table class="fields">
-        <tr><td>ID:</td><td class="item-id">{id}</td></tr>
-        <tr><td>Created:</td><td class="item-created">{created_at}</td></tr>
-        <tr><td>Updated:</td><td class="item-updated">{updated_at}</td></tr>
-        <tr><td>Originated:</td><td class="item-originated">{originated_at}</td></tr>
-        <tr><td>Path:</td><td class="item-path">{path}</td></tr>
-        <tr><td>Links:</td><td class="item-links">
+        <tr><td>ID:</td><td data-v="id">{?has_id?{id}}{!has_id!(unallocated)}</td></tr>
+        <tr><td>Created:</td><td data-v="created_at">{created_at}</td></tr>
+        <tr><td>Updated:</td><td data-v="updated_at">{?has_updated_at?{updated_at}}{!has_updated_at!(undefined)}</td></tr>
+        <tr><td>Path:</td><td data-v="path">{path}</td></tr>
+        <tr><td>Links:</td><td data-v="links">
 {[links]
-            <div class="link" data-id="{id}"><div class="link-rel">{rel}</div> - <div class="link-to" oninput="update_link(event)" onblur="leave_link(event)">{to}</div> <a href="{to}.html">→[]</a> <div class="delete-link" onclick="delete_link(event)">X</div></div>
+            <div class="link" data-v="link"><span data-v="rel">{rel}</span> - <span data-v="to_path" oninput="update_link(event)" onblur="leave_link(event)">{to_path}</span> <a href="{to_path}.html">→[]</a> <span onclick="delete_link(event)">X</span></div>
 }
-            <div class="new-link"><div class="link-rel">tag</div> - <div class="link-to" onfocus="new_link(event)" oninput="update_link(event)" onblur="leave_link(event)">(new link)</div></div>
+            <div class="link new-link"><span data-v="rel">tag</span> - <span data-v="to_path" onfocus="new_link(event)" oninput="update_link(event)" onblur="leave_link(event)">(new link)</span></div>
         <tr><td>Linked:</td><td class="item-linked">
 {[linked]
-            <div class="link"><div class="link-rel">{rel}</div> - <a class="link-to" href="{from}.html">{from}</a></div>
+            <div class="link"><span>{rel}</span> - <a href="{from_path}.html">{from}</a></div>
 }
         </td></tr>
     </table>
 }
 {!edit!
-    <table class="item-fields">
-        <tr><td>Created:</td><td class="item-created">{created_at}</td></tr>
-        <tr><td>Updated:</td><td class="item-updated">{updated_at}</td></tr>
-        <tr><td>Links:</td><td class="item-links">{[links]
-            <div class="link"><div class="link-rel">{rel}</div> - <a class="link-to" href="?{to}.html">{to}</a></div>}
+    <table class="fields">
+        <tr><td>Created:</td><td>{created_at}</td></tr>
+        <tr><td>Updated:</td><td>{updated_at}</td></tr>
+        <tr><td>Links:</td><td>{[links]
+            <div class="link"><div>{rel}</div> - <a href="?{to}.html">{to}</a></div>}
         <tr><td>Linked:</td><td class="item-linked">{[linked]
-            <div class="link"><div class="link-rel">{rel}</div> - <a class="link-to" href="{from}.html">{from}</a></div>}
+            <div class="link"><div>{rel}</div> - <a href="{from}.html">{from}</a></div>}
         </td></tr>
     </table>
 }
@@ -103,6 +105,9 @@ code, .code { font-family:"Inconsolata",monospace; }
     <div class="footer">
 {[warnings]
         <div class="warning">{_}</div>
+}
+{?edit?
+        <div id="ajax-errors" style="color:red;"></div>
 }
     </div>
 </div>
@@ -135,17 +140,6 @@ function toggle_raw (event) {
             item_html.text(item_html.html());
             item_html.attr("data-raw", "true");
         }
-    }
-}
-
-var timer = 0;
-function schedule_save () {
-    if (timer) clearTimeout(timer);
-    timer = setTimeout(do_save, 500)
-}
-function on_ready () {
-    if (localStorage) {
-        $("*[contentEditable=true]").on("input", schedule_save);
     }
 }
 
@@ -187,7 +181,70 @@ function leave_link (event) {
     });
 }
 
-$(document).ready(on_ready);
+$(document).ready(function(){
+    var html_page = $("[data-v=page]");
+    var html_id = html_page.find("[data-v=id]");
+    var html_created_at = html_page.find("[data-v=created_at]");
+    var html_updated_at = html_page.find("[data-v=updated_at]");
+    var html_path = html_page.find("[data-v=path]");
+    var html_title = html_page.find("[data-v=title]");
+    var html_html = html_page.find("[data-v=html]");
+    var html_originated_at = html_page.find("[data-v=originated_at]");
+    var html_links = html_page.find("[data-v=links]");
+    var timer = 0;
+    function read_page () {
+        function null_value (v, nv) { return v == nv ? null : v; }
+        return {
+            id: null_value(html_id.text(), "(unallocated)"),
+            path: html_path.text(),
+            title: null_value(html_title.text(), "(untitled)"),
+            html: null_value(html_html[0].hasAttribute("data-raw") ? html_html.text() : html_html.html(), "<p>No Content.</p>"),
+            created_at: html_id.text() == "(unallocated)" ? html_created_at.text() : null,
+            originated_at: null_value(html_originated_at.text(), html_created_at.text()),
+            links: html_links.find("[data-v=link]").map(function(i,v){
+                return {
+                    rel: $(v).find("[data-v=rel]").map(function(i,v){ return $(v).text(); }),
+                    to_path: $(v).find("[data-v=to_path]").map(function(i, v){ return $(v).text(); }),
+                };
+            }),
+        };
+    }
+    function write_page (page) {
+        function null_value (v, nv) { return v == null ? nv : v; }
+        if ("id" in page) {
+            html_id.text(null_value(page.id, "(unallocated)"));
+        }
+        if ("updated_at" in page) {
+            html_updated_at.text(page.updated_at);
+        }
+    }
+    function do_save () {
+        var page = read_page();
+        $.ajax(page.path, {
+            method: "PUT",
+            contentType: "text/plain",
+            processData: false,
+            data: JSON.stringify(page),
+            dataType: "json",
+        }).done(function(data){
+            var page = JSON.parse(data);
+            write_page(page);
+            $(".corner-controls").removeClass("err");
+            $("#ajax-errors").empty();
+        }).fail(function(x,t,e){
+            $(".corner-controls").addClass("err");
+            $("#ajax-errors").text("do_save failed: " + t + ", " + e + ", " + x.responseText);
+        });
+    }
+    function schedule_save () {
+        if (timer) clearTimeout(timer);
+        timer = setTimeout(do_save, 500)
+    }
+    html_title.attr("contentEditable", "true").on("input", schedule_save);
+    html_html.attr("contentEditable", "true").on("input", schedule_save);
+    html_originated_at.attr("contentEditable", "true").on("input", schedule_save);
+    html_path.attr("contentEditable", "true").on("input", schedule_save);
+});
 
 </script>
 }}}

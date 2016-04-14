@@ -1,4 +1,4 @@
-<IfModule !rewrite>
+<IfModule !mod_rewrite.c>
     Error "Apache mod_rewrite is required for this web app."
 </IfModule>
 RewriteEngine on

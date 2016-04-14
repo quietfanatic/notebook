@@ -20,9 +20,19 @@ sub db_sub {
     my ($sql) = @_;
     my @types;
     $sql =~ s/\{([A-Z]+)\}/push @types, $1 eq 'TEXT' ? DBI::SQL_VARCHAR() : &{"DBI::SQL_$1"}(); '?'/eg;
-    my $st = get_db()->prepare($sql);
+    my $st;
+    eval {
+        $st = get_db()->prepare($sql);
+    };
+    if ($@) {
+        require Carp;
+        Carp::confess($@);
+    };
     return sub {
-        @_ == @types or confess "Incorrect number of parameters given to db sub (".(0+@_)." != ".(0+@types).")";
+        @_ == @types or do {
+            require Carp;
+            Carp::confess("Incorrect number of parameters given to db sub (".(0+@_)." != ".(0+@types).")");
+        };
         for (0..$#types) {
             $st->bind_param($_+1, $_[$_], $types[$_]);
         }
